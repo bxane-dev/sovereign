@@ -94,6 +94,11 @@ async function initialize() {
     $("connection").textContent = "Core connected";
     $("connection").classList.add("online");
     $("version").textContent = `v${status.version}`;
+    const visionAvailable = status.computer_control_enabled && status.visual_autonomy_enabled &&
+      status.backends.some((backend) => backend.healthy && backend.enabled && backend.capabilities.includes("vision"));
+    $("visual").disabled = !visionAvailable;
+    if (!visionAvailable) $("visual").checked = false;
+    $("mode-note").textContent = visionAvailable ? "Reasoning conversation" : "Desktop vision needs an enabled vision backend";
     $("approvals").replaceChildren();
     const actions = ["sovereign__write_text", ...toolResponse.visual_action_tools];
     for (const name of actions) {
@@ -108,6 +113,9 @@ async function initialize() {
     const {sessions} = await request("GET", "/v1/sessions");
     if (sessions.length) await refreshSessions(sessions[0].id);
     else await createSession();
+    if (status.backends.length === 0) {
+      addMessage("assistant", "No model backend is configured yet. Add one to ~/.sovereign/config.json, then select Refresh.");
+    }
   } catch (error) {
     $("connection").textContent = "Core unavailable";
     addMessage("error", error.message);

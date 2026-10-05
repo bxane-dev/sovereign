@@ -1,7 +1,7 @@
 const {app, BrowserWindow, ipcMain} = require("electron");
 const {spawn} = require("node:child_process");
 const {randomBytes} = require("node:crypto");
-const {existsSync} = require("node:fs");
+const {existsSync, writeFileSync} = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
 const {allowedRoute} = require("./lib/routes.cjs");
@@ -82,10 +82,12 @@ async function apiRequest(_event, {method, route, body}) {
 }
 
 function createWindow() {
+  const snapshot = process.env.SOVEREIGN_UI_SNAPSHOT;
   window = new BrowserWindow({
     width: 1100, height: 760, minWidth: 750, minHeight: 520,
     title: "Sovereign",
     backgroundColor: "#111827",
+    show: !snapshot,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -96,6 +98,14 @@ function createWindow() {
   window.webContents.setWindowOpenHandler(() => ({action: "deny"}));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.loadFile(path.join(__dirname, "renderer", "index.html"));
+  if (snapshot) {
+    window.webContents.once("did-finish-load", async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const image = await window.webContents.capturePage();
+      writeFileSync(snapshot, image.toPNG());
+      app.quit();
+    });
+  }
 }
 
 async function checkUpdates() {

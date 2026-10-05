@@ -10,7 +10,7 @@ name = "sovereign-terminal.exe" if sys.platform == "win32" else "sovereign-termi
 target = root / "apps" / "desktop" / "resources" / "terminal" / name
 target.parent.mkdir(parents=True, exist_ok=True)
 subprocess.run(
-    ["pnpm", "--filter", "@sovereign/terminal", "exec", "bun", "build", "src/index.tsx", "--compile", "--outfile", str(target)],
-    cwd=root,
+    ["bun", "build", "src/index.tsx", "--compile", "--outfile", str(target)],
+    cwd=root / "apps" / "terminal",
     check=True,
 )
