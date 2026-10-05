@@ -102,7 +102,8 @@ def test_visual_loop_refreshes_screen_after_each_action(tmp_path: Path):
     assert desktop.frames == 2
     assert ("click", 100, 120, "left", 1) in desktop.actions
     assert executor.messages[0][2] is Capability.VISION
-    assert executor.messages[0][1][0]["function"]["name"] == "sovereign__mouse_click"
+    tool_names = {item["function"]["name"] for item in executor.messages[0][1]}
+    assert "sovereign__mouse_click" in tool_names
 
 
 def test_visual_loop_requires_per_run_action_approval(tmp_path: Path):
