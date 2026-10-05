@@ -1,108 +1,113 @@
-# Sovereign v6.9
+# Sovereign v7.0
 
-Sovereign is a local-first AI agent controller. v6.9 adds a permission-gated native computer/tool runtime on top of the FastAPI, Pydantic, asyncio, OpenAI SDK, and MCP architecture.
+Sovereign is a local-first AI agent controller with a trusted Python execution core and a modern terminal client.
 
-## v6.9 computer runtime
+## v7.0 terminal architecture
 
-Sovereign now has native tools for:
+v7.0 adds a Claude Code-style **application stack** for the terminal experience:
 
-- reading text files inside permitted filesystem roots
-- listing directories inside permitted filesystem roots
-- optionally writing text files
-- screen-size inspection
-- screenshots
-- mouse movement and clicks
-- keyboard typing, key presses, and hotkeys
+- **TypeScript** — terminal/client implementation
+- **React** — component model
+- **Ink** — React rendering in the terminal
+- **Yoga** — terminal layout calculations
+- **Bun** — runtime, package management, tests, and development tooling
 
-The safety boundary is local and enforced before actions run:
+This is an architectural/library alignment only. Sovereign does not copy or depend on proprietary Claude Code source.
 
-- filesystem reads remain restricted by Sovereign's existing sandbox / selected-root / full-access policy
-- filesystem writes are hidden unless `filesystem_write_enabled=true`
-- writes still require explicit per-run approval
-- desktop tools are hidden unless `computer_control_enabled=true`
-- mouse and keyboard actions require explicit per-run approval
-- screenshots are only exposed after computer control has been explicitly enabled
-- PyAutoGUI's fail-safe remains enabled
-
-## Core stack
+The trusted execution core remains:
 
 - Python
 - FastAPI
 - Pydantic
 - asyncio
 - official OpenAI Python SDK
-- MCP stdio tools
+- MCP
+- permission-gated native filesystem and computer tools
 - pytest
-- optional PyTorch local-ML extra
+- optional PyTorch support for local ML work
 
-Desktop control adds optional PyAutoGUI, MSS, and Pillow dependencies.
+## Architecture
 
-## Install
+    apps/terminal (Bun + TypeScript + React + Ink + Yoga)
+                |
+                | HTTP on localhost
+                v
+    FastAPI control plane
+                |
+                v
+    Sovereign agent / Compute Mesh / MCP / native tools
+                |
+        permission + approval gates
+                |
+                v
+    filesystem / screen / mouse / keyboard / model backends
 
-Core:
+The terminal UI never bypasses the Python permission layer.
 
-    python -m pip install -e .
-
-Development:
+## Install the core
 
     python -m pip install -e ".[dev]"
 
-Desktop control:
+For desktop control:
 
     python -m pip install -e ".[desktop]"
 
-Optional local ML runtime:
-
-    python -m pip install -e ".[ml]"
-
-## Configuration
-
-Example `~/.sovereign/config.json`:
-
-    {
-      "permission_mode": "sandbox",
-      "workspace": "~/.sovereign/workspace",
-      "filesystem_write_enabled": true,
-      "computer_control_enabled": true,
-      "backends": [
-        {
-          "name": "local-model",
-          "endpoint": "http://127.0.0.1:11434/v1/chat/completions",
-          "protocol": "openai",
-          "model": "local-model",
-          "capabilities": ["reasoning", "vision"],
-          "priority": 100
-        }
-      ]
-    }
-
-Computer control remains disabled unless explicitly enabled.
-
-## Run
-
-List enabled tools:
-
-    sovereign tools
-
-Read-only tool use requires no special run flag because path policy still applies.
-
-Approve a write for one run:
-
-    sovereign run "Create notes.txt in my workspace" \
-      --approve-tool sovereign__write_text
-
-Approve mouse and keyboard actions for one run:
-
-    sovereign run "Open the app and type hello" \
-      --approve-tool sovereign__mouse_move \
-      --approve-tool sovereign__mouse_click \
-      --approve-tool sovereign__type_text
-
-Approvals are exact tool names and apply only to that run.
-
-## FastAPI
+Start the local control plane:
 
     sovereign serve --port 8765
+
+## Install the terminal client
+
+Install Bun, then:
+
+    cd apps/terminal
+    bun install
+    bun run start
+
+The client connects to:
+
+    http://127.0.0.1:8765
+
+Override it with:
+
+    SOVEREIGN_API_URL=http://127.0.0.1:9000 bun run start
+
+## Terminal commands
+
+- `/status` — controller, permissions, workspace, and control status
+- `/tools` — enabled native tools and MCP servers
+- `/approve <tool>` — approve one gated tool for the **next prompt only**
+- `/revoke <tool>` — remove a pending next-run approval
+- `/clear` — clear the visible transcript
+- `/help` — show commands
+- `/quit` — exit
+
+Example:
+
+    /approve sovereign__mouse_click
+    /approve sovereign__type_text
+    Open the editor and type hello
+
+Those approvals are sent only with that run and are cleared afterwards.
+
+## Native tools
+
+Read-only filesystem tools obey Sovereign's path policy.
+
+Optional write and computer-control tools include:
+
+- `sovereign__write_text`
+- `sovereign__screen_size`
+- `sovereign__screenshot`
+- `sovereign__mouse_move`
+- `sovereign__mouse_click`
+- `sovereign__type_text`
+- `sovereign__press_key`
+- `sovereign__hotkey`
+
+Computer control defaults off. Filesystem writes default off. Mutating/input actions require explicit run approval.
+
+## FastAPI
 
 Endpoints:
 
@@ -111,9 +116,21 @@ Endpoints:
 - `GET /v1/tools`
 - `POST /v1/route`
 - `POST /v1/run`
-- interactive OpenAPI docs at `/docs`
+- `/docs` for interactive OpenAPI documentation
 
-`POST /v1/run` accepts an `approved_tools` array for gated native actions.
+## Tests
+
+Python:
+
+    python -m pytest
+
+Terminal:
+
+    cd apps/terminal
+    bun run check
+    bun test
+
+GitHub Actions validates Python 3.11–3.13 and the Bun/TypeScript terminal client.
 
 ## Permission model
 
@@ -121,6 +138,6 @@ Endpoints:
 - `selected`: workspace plus explicitly selected roots
 - `full`: unrestricted path checks only when `full_access_opt_in=true`
 
-Remote model output is never permission to bypass local policy or approval gates.
+Remote model output and terminal-client input are never treated as permission to bypass local policy or approval gates.
 
-Current version: 6.9.0.
+Current version: 7.0.0.
