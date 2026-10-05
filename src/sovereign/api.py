@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -29,6 +30,15 @@ class SovereignRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def _payload(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0 or length > 1024 * 1024:
+            raise ValueError("invalid request body size")
+        payload = json.loads(self.rfile.read(length))
+        if not isinstance(payload, dict):
+            raise ValueError("request body must be a JSON object")
+        return payload
+
     def do_GET(self) -> None:
         if self.path == "/health":
             self._json(HTTPStatus.OK, {"ok": True, "service": "sovereign"})
@@ -39,35 +49,58 @@ class SovereignRequestHandler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
 
     def do_POST(self) -> None:
-        if self.path != "/v1/route":
-            self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
-            return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > 1024 * 1024:
-                raise ValueError("invalid request body size")
-            payload = json.loads(self.rfile.read(length))
-            capability = Capability(str(payload["capability"]))
-            attachments = payload.get("attachments", [])
-            if not isinstance(attachments, list):
-                raise ValueError("attachments must be an array")
-            decision = self.server.agent.plan_route(capability, attachments)
-            self._json(
-                HTTPStatus.OK,
-                {
-                    "capability": decision.capability.value,
-                    "backend": decision.backend.name,
-                    "attachments": [
-                        {
-                            "path": str(item.path),
-                            "media_type": item.media_type,
-                            "size": item.size,
-                            "sha256": item.sha256,
-                        }
-                        for item in decision.attachments
-                    ],
-                },
-            )
+            payload = self._payload()
+            if self.path == "/v1/route":
+                capability = Capability(str(payload["capability"]))
+                attachments = payload.get("attachments", [])
+                if not isinstance(attachments, list):
+                    raise ValueError("attachments must be an array")
+                decision = self.server.agent.plan_route(capability, attachments)
+                self._json(
+                    HTTPStatus.OK,
+                    {
+                        "capability": decision.capability.value,
+                        "backend": decision.backend.name,
+                        "attachments": [
+                            {
+                                "path": str(item.path),
+                                "media_type": item.media_type,
+                                "size": item.size,
+                                "sha256": item.sha256,
+                            }
+                            for item in decision.attachments
+                        ],
+                    },
+                )
+                return
+            if self.path == "/v1/run":
+                prompt = str(payload["prompt"])
+                capability = Capability(str(payload.get("capability", "reasoning")))
+                attachments = payload.get("attachments", [])
+                if not isinstance(attachments, list):
+                    raise ValueError("attachments must be an array")
+                raw_steps = payload.get("max_steps")
+                result = asyncio.run(
+                    self.server.agent.run(
+                        prompt,
+                        capability,
+                        attachments,
+                        int(raw_steps) if raw_steps is not None else None,
+                    )
+                )
+                self._json(
+                    HTTPStatus.OK,
+                    {
+                        "text": result.text,
+                        "backend": result.backend,
+                        "capability": result.capability.value,
+                        "steps": result.steps,
+                        "tool_calls": result.tool_calls,
+                    },
+                )
+                return
+            self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
         except (KeyError, ValueError, RuntimeError, PermissionError) as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 

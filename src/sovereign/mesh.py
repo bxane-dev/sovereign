@@ -67,6 +67,8 @@ class ComputeMesh:
                 "healthy": state.healthy,
                 "enabled": state.spec.enabled,
                 "priority": state.spec.priority,
+                "protocol": state.spec.protocol,
+                "model": state.spec.model,
                 "capabilities": sorted(cap.value for cap in state.spec.capabilities),
             }
             for state in sorted(self._states.values(), key=lambda item: item.spec.name)

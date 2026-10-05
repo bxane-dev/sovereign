@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
+from . import __version__
 from .models import MCPServerSpec
 
 
@@ -43,12 +45,21 @@ class MCPClient:
             await self.process.wait()
         self.process = None
 
+    async def _notify(self, method: str, params: dict[str, Any] | None = None) -> None:
+        await self.start()
+        assert self.process and self.process.stdin
+        payload: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+        if params is not None:
+            payload["params"] = params
+        self.process.stdin.write((json.dumps(payload) + "\n").encode("utf-8"))
+        await self.process.stdin.drain()
+
     async def _request(self, method: str, params: dict[str, Any] | None = None) -> Any:
         await self.start()
         assert self.process and self.process.stdin and self.process.stdout
         request_id = self._next_id
         self._next_id += 1
-        payload = {"jsonrpc": "2.0", "id": request_id, "method": method}
+        payload: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id, "method": method}
         if params is not None:
             payload["params"] = params
         self.process.stdin.write((json.dumps(payload) + "\n").encode("utf-8"))
@@ -56,7 +67,14 @@ class MCPClient:
         while True:
             line = await self.process.stdout.readline()
             if not line:
-                raise MCPError(f"MCP server {self.spec.name!r} closed stdout")
+                stderr = b""
+                if self.process.stderr:
+                    try:
+                        stderr = await asyncio.wait_for(self.process.stderr.read(), timeout=0.1)
+                    except asyncio.TimeoutError:
+                        pass
+                suffix = f": {stderr.decode('utf-8', 'replace')[:500]}" if stderr else ""
+                raise MCPError(f"MCP server {self.spec.name!r} closed stdout{suffix}")
             try:
                 response = json.loads(line)
             except json.JSONDecodeError:
@@ -68,14 +86,16 @@ class MCPClient:
             return response.get("result")
 
     async def initialize(self) -> Any:
-        return await self._request(
+        result = await self._request(
             "initialize",
             {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "sovereign", "version": "6.6.0"},
+                "clientInfo": {"name": "sovereign", "version": __version__},
             },
         )
+        await self._notify("notifications/initialized")
+        return result
 
     async def list_tools(self) -> Any:
         return await self._request("tools/list", {})
@@ -93,3 +113,47 @@ class MCPHub:
 
     def client(self, name: str) -> MCPClient:
         return MCPClient(self.specs[name])
+
+    @staticmethod
+    def _alias(server: str, tool: str) -> str:
+        alias = re.sub(r"[^A-Za-z0-9_-]", "_", f"{server}__{tool}")
+        return alias[:64]
+
+    async def connect_tools(
+        self,
+    ) -> tuple[dict[str, MCPClient], list[dict[str, Any]], dict[str, tuple[str, str]]]:
+        clients: dict[str, MCPClient] = {}
+        definitions: list[dict[str, Any]] = []
+        registry: dict[str, tuple[str, str]] = {}
+        try:
+            for server_name in self.names():
+                client = self.client(server_name)
+                clients[server_name] = client
+                await client.initialize()
+                listing = await client.list_tools()
+                tools = listing.get("tools", []) if isinstance(listing, dict) else []
+                for tool in tools:
+                    if not isinstance(tool, dict) or not tool.get("name"):
+                        continue
+                    real_name = str(tool["name"])
+                    alias = self._alias(server_name, real_name)
+                    if alias in registry:
+                        raise MCPError(f"MCP tool alias collision: {alias}")
+                    schema = tool.get("inputSchema") or {"type": "object", "properties": {}}
+                    if not isinstance(schema, dict):
+                        schema = {"type": "object", "properties": {}}
+                    registry[alias] = (server_name, real_name)
+                    definitions.append(
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": alias,
+                                "description": str(tool.get("description", "")),
+                                "parameters": schema,
+                            },
+                        }
+                    )
+            return clients, definitions, registry
+        except Exception:
+            await asyncio.gather(*(client.close() for client in clients.values()), return_exceptions=True)
+            raise

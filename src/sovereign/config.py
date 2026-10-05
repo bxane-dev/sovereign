@@ -19,6 +19,8 @@ class SovereignConfig:
     allowed_roots: list[Path] = field(default_factory=list)
     full_access_opt_in: bool = False
     max_attachment_bytes: int = 128 * 1024 * 1024
+    max_inline_image_bytes: int = 8 * 1024 * 1024
+    max_agent_steps: int = 8
     backends: list[BackendSpec] = field(default_factory=list)
     mcp_servers: list[MCPServerSpec] = field(default_factory=list)
 
@@ -32,6 +34,8 @@ class SovereignConfig:
             allowed_roots=roots,
             full_access_opt_in=bool(data.get("full_access_opt_in", False)),
             max_attachment_bytes=int(data.get("max_attachment_bytes", 128 * 1024 * 1024)),
+            max_inline_image_bytes=int(data.get("max_inline_image_bytes", 8 * 1024 * 1024)),
+            max_agent_steps=int(data.get("max_agent_steps", 8)),
             backends=[BackendSpec.from_dict(item) for item in data.get("backends", [])],
             mcp_servers=[MCPServerSpec.from_dict(item) for item in data.get("mcp_servers", [])],
         )

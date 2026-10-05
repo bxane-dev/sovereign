@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
 
 class Capability(str, Enum):
@@ -29,6 +29,9 @@ class BackendSpec:
     timeout_seconds: float = 60.0
     headers: Mapping[str, str] = field(default_factory=dict)
     enabled: bool = True
+    protocol: str = "openai"
+    model: str | None = None
+    options: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: Mapping[str, object]) -> "BackendSpec":
@@ -41,8 +44,15 @@ class BackendSpec:
             raise ValueError(f"backend {name!r} must declare at least one capability")
         caps = frozenset(Capability(str(item)) for item in raw_caps)
         headers = data.get("headers", {})
+        options = data.get("options", {})
         if not isinstance(headers, dict):
             raise ValueError("backend headers must be an object")
+        if not isinstance(options, dict):
+            raise ValueError("backend options must be an object")
+        protocol = str(data.get("protocol", "openai")).strip().lower()
+        if protocol not in {"openai", "sovereign"}:
+            raise ValueError(f"unsupported backend protocol: {protocol}")
+        model_value = data.get("model")
         return cls(
             name=name,
             endpoint=endpoint,
@@ -51,6 +61,9 @@ class BackendSpec:
             timeout_seconds=float(data.get("timeout_seconds", 60.0)),
             headers={str(k): str(v) for k, v in headers.items()},
             enabled=bool(data.get("enabled", True)),
+            protocol=protocol,
+            model=str(model_value) if model_value is not None else None,
+            options=dict(options),
         )
 
 
@@ -84,3 +97,25 @@ class Attachment:
     media_type: str
     size: int
     sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class BackendReply:
+    text: str
+    tool_calls: tuple[ToolCall, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RunResult:
+    text: str
+    backend: str
+    capability: Capability
+    steps: int
+    tool_calls: int
