@@ -50,8 +50,22 @@ class PyAutoGUIDriver:
     def screenshot(self, path: Path) -> tuple[int, int]:
         path.parent.mkdir(parents=True, exist_ok=True)
         with self._mss.mss() as capture:
-            monitor = capture.monitors[0]
+            # PyAutoGUI input coordinates are relative to the primary display.
+            width, height = self.screen_size()
+            monitor = next(
+                (
+                    item
+                    for item in capture.monitors[1:]
+                    if (item["left"], item["top"], item["width"], item["height"])
+                    == (0, 0, width, height)
+                ),
+                None,
+            )
+            if monitor is None:
+                raise NativeToolError("cannot match a screen capture to desktop input coordinates")
             shot = capture.grab(monitor)
+            if shot.size != (width, height):
+                raise NativeToolError("screen capture size differs from desktop input coordinates")
             image = self._image.frombytes("RGB", shot.size, shot.rgb)
             image.save(path, format="PNG")
             return int(shot.width), int(shot.height)

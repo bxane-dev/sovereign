@@ -1,10 +1,11 @@
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from sovereign.config import SovereignConfig
-from sovereign.native_tools import ApprovalRequired, NativeToolRuntime
+from sovereign.native_tools import ApprovalRequired, NativeToolError, NativeToolRuntime, PyAutoGUIDriver
 from sovereign.permissions import PermissionPolicy
 
 
@@ -115,3 +116,44 @@ def test_desktop_read_and_input_approval(tmp_path: Path):
     )
     assert click["x"] == 10
     assert desktop.actions[-1] == ("click", 10, 20, "left", 1)
+
+
+def test_screenshot_matches_primary_input_coordinates(tmp_path: Path):
+    selected = []
+    monitors = [
+        {"left": -100, "top": 0, "width": 200, "height": 100},
+        {"left": -100, "top": 0, "width": 100, "height": 100},
+        {"left": 0, "top": 0, "width": 100, "height": 100},
+    ]
+
+    class Capture:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        @property
+        def monitors(self):
+            return monitors
+
+        def grab(self, monitor):
+            selected.append(monitor)
+            return SimpleNamespace(size=(100, 100), rgb=b"pixels", width=100, height=100)
+
+    class Image:
+        @staticmethod
+        def frombytes(*args):
+            return SimpleNamespace(save=lambda path, format: path.write_bytes(b"png"))
+
+    driver = object.__new__(PyAutoGUIDriver)
+    driver._pyautogui = SimpleNamespace(size=lambda: SimpleNamespace(width=100, height=100))
+    driver._mss = SimpleNamespace(mss=Capture)
+    driver._image = Image
+
+    assert driver.screenshot(tmp_path / "screen.png") == (100, 100)
+    assert selected == [monitors[2]]
+
+    monitors.pop()
+    with pytest.raises(NativeToolError, match="cannot match"):
+        driver.screenshot(tmp_path / "missing.png")

@@ -27,6 +27,10 @@ class SovereignConfig:
     visual_autonomy_enabled: bool = False
     max_visual_steps: int = 12
     visual_action_delay_seconds: float = 0.35
+    visual_capture_retries: int = 2
+    visual_backend_retries: int = 2
+    visual_retry_delay_seconds: float = 0.25
+    max_visual_recoveries: int = 2
     max_native_read_chars: int = 200_000
     max_native_write_chars: int = 1_000_000
     backends: list[BackendSpec] = field(default_factory=list)
@@ -50,6 +54,10 @@ class SovereignConfig:
             visual_autonomy_enabled=bool(data.get("visual_autonomy_enabled", False)),
             max_visual_steps=int(data.get("max_visual_steps", 12)),
             visual_action_delay_seconds=float(data.get("visual_action_delay_seconds", 0.35)),
+            visual_capture_retries=int(data.get("visual_capture_retries", 2)),
+            visual_backend_retries=int(data.get("visual_backend_retries", 2)),
+            visual_retry_delay_seconds=float(data.get("visual_retry_delay_seconds", 0.25)),
+            max_visual_recoveries=int(data.get("max_visual_recoveries", 2)),
             max_native_read_chars=int(data.get("max_native_read_chars", 200_000)),
             max_native_write_chars=int(data.get("max_native_write_chars", 1_000_000)),
             backends=[BackendSpec.from_dict(item) for item in data.get("backends", [])],
