@@ -9,7 +9,7 @@ function loadBridge(result) {
   const source = readFileSync(path.join(__dirname, "../preload.cjs"), "utf8");
   const electron = {
     contextBridge: {exposeInMainWorld: (_name, api) => { exposed = api; }},
-    ipcRenderer: {invoke: async () => result, on: () => {}},
+    ipcRenderer: {invoke: async () => result, on: () => {}, send: () => {}},
   };
   vm.runInNewContext(source, {
     require: () => electron,
@@ -20,6 +20,7 @@ function loadBridge(result) {
 test("preload unwraps successful core API responses", async () => {
   const bridge = loadBridge({ok: true, payload: {version: "8.0.0"}});
   assert.deepEqual(await bridge.request("GET", "/v1/status"), {version: "8.0.0"});
+  bridge.showMessageMenu("answer", "selection");
 });
 
 test("preload reports the core's error without Electron IPC wrapper text", async () => {

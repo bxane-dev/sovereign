@@ -7,5 +7,6 @@ contextBridge.exposeInMainWorld("sovereign", {
     return result.payload;
   },
   installUpdate: () => ipcRenderer.invoke("sovereign:install-update"),
+  showMessageMenu: (text, selection) => ipcRenderer.send("sovereign:message-context-menu", {text, selection}),
   onUpdate: (callback) => ipcRenderer.on("sovereign:update", (_event, detail) => callback(detail)),
 });

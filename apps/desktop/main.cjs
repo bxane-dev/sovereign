@@ -1,4 +1,4 @@
-const {app, BrowserWindow, ipcMain} = require("electron");
+const {app, BrowserWindow, ipcMain, Menu, clipboard} = require("electron");
 const {execFileSync, spawn} = require("node:child_process");
 const {randomBytes} = require("node:crypto");
 const {existsSync, writeFileSync} = require("node:fs");
@@ -90,7 +90,7 @@ function createWindow() {
   window = new BrowserWindow({
     width: 1100, height: 760, minWidth: 750, minHeight: 520,
     title: "Sovereign",
-    backgroundColor: "#111827",
+    backgroundColor: "#242321",
     show: !snapshot,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -101,6 +101,45 @@ function createWindow() {
   });
   window.webContents.setWindowOpenHandler(() => ({action: "deny"}));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
+  window.webContents.on("context-menu", (_event, params) => {
+    const template = [];
+    if (params.isEditable) {
+      template.push(
+        {role: "undo", enabled: params.editFlags.canUndo},
+        {role: "redo", enabled: params.editFlags.canRedo},
+        {type: "separator"},
+        {role: "cut", enabled: params.editFlags.canCut},
+        {role: "copy", enabled: params.editFlags.canCopy},
+        {role: "paste", enabled: params.editFlags.canPaste},
+        {role: "selectAll"},
+      );
+    } else {
+      template.push(
+        {role: "copy", enabled: params.editFlags.canCopy},
+        {role: "selectAll"},
+      );
+    }
+    if (params.misspelledWord) {
+      const suggestions = params.dictionarySuggestions || [];
+      if (suggestions.length) {
+        template.unshift(...suggestions.slice(0, 5).map((suggestion) => ({
+          label: suggestion,
+          click: () => window?.webContents.replaceMisspelling(suggestion),
+        })), {type: "separator"});
+      }
+      template.unshift({label: `Add “${params.misspelledWord}” to dictionary`, click: () => app.addWordToSpellCheckerDictionary(params.misspelledWord)});
+    }
+    Menu.buildFromTemplate(template).popup({window});
+  });
+  ipcMain.on("sovereign:message-context-menu", (event, payload) => {
+    const target = BrowserWindow.fromWebContents(event.sender);
+    if (!target || !payload || typeof payload.text !== "string") return;
+    const selection = typeof payload.selection === "string" ? payload.selection : "";
+    const template = [];
+    if (selection) template.push({label: "Copy selection", click: () => clipboard.writeText(selection)});
+    template.push({label: "Copy message", click: () => clipboard.writeText(payload.text.slice(0, 1_000_000))});
+    Menu.buildFromTemplate(template).popup({window: target});
+  });
   window.loadFile(path.join(__dirname, "renderer", "index.html"));
   if (snapshot) {
     window.webContents.once("did-finish-load", async () => {

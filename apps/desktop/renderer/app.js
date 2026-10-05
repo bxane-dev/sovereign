@@ -10,6 +10,7 @@ function addMessage(role, content) {
   $("messages").querySelector(".empty")?.remove();
   const item = document.createElement("div");
   item.className = `message ${role}`;
+  item.dataset.content = content;
   const label = document.createElement("small");
   label.textContent = role === "user" ? "You" : role === "error" ? "Error" : "Sovereign";
   item.append(label, document.createTextNode(content));
@@ -103,13 +104,19 @@ async function initialize() {
     ]);
     $("connection").textContent = "Core connected";
     $("connection").classList.add("online");
-    $("version").textContent = `v${status.version}`;
+    $("version").textContent = `v${status.version} · Preview`;
     hasVisionBackend = status.backends.some((backend) => backend.healthy && backend.enabled && backend.capabilities.includes("vision"));
     const visionAvailable = status.computer_control_enabled && status.visual_autonomy_enabled && hasVisionBackend;
+    const controlEnabled = status.computer_control_enabled && status.visual_autonomy_enabled;
     hasReasoningBackend = status.backends.some((backend) => backend.healthy && backend.enabled && backend.capabilities.includes("reasoning"));
     $("visual").disabled = !visionAvailable;
     if (!visionAvailable) $("visual").checked = false;
     $("mode-note").textContent = visionAvailable ? "Reasoning conversation" : "Desktop vision needs computer control, visual autonomy, and a vision backend";
+    $("control-toggle").hidden = false;
+    $("control-toggle").textContent = controlEnabled ? "Disable desktop control" : "Enable desktop control";
+    $("vision-help").textContent = !hasVisionBackend
+      ? `Add a vision-capable model to ${status.config_path || "~/.sovereign/config.json"}.`
+      : controlEnabled ? "Computer control is enabled; approve each desktop action before it runs." : "Desktop control stays off until you enable it.";
     updateSendAvailability();
     $("prompt").placeholder = hasReasoningBackend
       ? "Ask Sovereign to help with a task…"
@@ -177,12 +184,50 @@ function updateSendAvailability() {
   $("send").disabled = busy || !backendAvailable;
 }
 
+function applyTheme(theme) {
+  const normalized = theme === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = normalized;
+  localStorage.setItem("sovereign-theme", normalized);
+  const next = normalized === "dark" ? "light" : "dark";
+  $("theme-toggle").title = `Switch to ${next} theme`;
+  $("theme-toggle").setAttribute("aria-label", `Switch to ${next} theme`);
+  $("theme-toggle").textContent = normalized === "dark" ? "☼" : "◐";
+}
+
+applyTheme(localStorage.getItem("sovereign-theme") || "dark");
+$("theme-toggle").addEventListener("click", () => {
+  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+});
+
+$("control-toggle").addEventListener("click", async () => {
+  const enable = $("control-toggle").textContent.startsWith("Enable");
+  if (enable && !window.confirm("Allow Sovereign to capture and control your desktop? Actions still require approval for each run.")) return;
+  $("control-toggle").disabled = true;
+  try {
+    await request("POST", "/v1/settings/computer-control", {enabled: enable});
+    await initialize();
+  } catch (error) {
+    addMessage("error", error.message);
+  } finally { $("control-toggle").disabled = false; }
+});
+
 $("new-session").addEventListener("click", () => {
   showPlugins(false);
   void createSession().catch((error) => addMessage("error", error.message));
 });
 $("plugins-button").addEventListener("click", () => showPlugins(true));
 $("refresh").addEventListener("click", () => void initialize());
+$("prompt").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  $("composer").requestSubmit();
+});
+$("messages").addEventListener("contextmenu", (event) => {
+  const item = event.target.closest(".message");
+  if (!item) return;
+  event.preventDefault();
+  window.sovereign.showMessageMenu(item.dataset.content || item.innerText, window.getSelection()?.toString() || "");
+});
 $("visual").addEventListener("change", () => {
   $("mode-note").textContent = $("visual").checked
     ? "Desktop screenshot loop"
