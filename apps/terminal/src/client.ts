@@ -4,6 +4,8 @@ import type {
   RunRequest,
   RunResponse,
   SovereignStatus,
+  SessionDetail,
+  SessionSummary,
   ToolsResponse,
 } from "./types.ts";
 
@@ -75,6 +77,24 @@ export class SovereignApi {
     return this.request("/v1/computer/run", {
       method: "POST",
       body: JSON.stringify(payload),
+    });
+  }
+
+  createSession(): Promise<SessionSummary> {
+    return this.request("/v1/sessions", {method: "POST", body: "{}"});
+  }
+
+  listSessions(): Promise<{sessions: SessionSummary[]}> {
+    return this.request("/v1/sessions");
+  }
+
+  getSession(id: string): Promise<SessionDetail> {
+    return this.request(`/v1/sessions/${encodeURIComponent(id)}`);
+  }
+
+  resumeSession(id: string, approvedTools: string[]): Promise<RunResponse> {
+    return this.request(`/v1/sessions/${encodeURIComponent(id)}/resume`, {
+      method: "POST", body: JSON.stringify({approved_tools: approvedTools}),
     });
   }
 }

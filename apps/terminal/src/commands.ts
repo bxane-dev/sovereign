@@ -4,6 +4,10 @@ export type ParsedInput =
   | { kind: "visual"; prompt: string }
   | { kind: "status" }
   | { kind: "tools" }
+  | { kind: "session_new" }
+  | { kind: "session_use"; id: string }
+  | { kind: "sessions" }
+  | { kind: "resume" }
   | { kind: "approve"; tool: string }
   | { kind: "revoke"; tool: string }
   | { kind: "clear" }
@@ -28,6 +32,13 @@ export function parseInput(raw: string): ParsedInput {
       return { kind: "status" };
     case "/tools":
       return { kind: "tools" };
+    case "/session":
+      if (argument === "new") return { kind: "session_new" };
+      return argument ? { kind: "session_use", id: argument } : { kind: "unknown", command: value };
+    case "/sessions":
+      return { kind: "sessions" };
+    case "/resume":
+      return { kind: "resume" };
     case "/approve":
       return argument
         ? { kind: "approve", tool: argument }
@@ -52,6 +63,10 @@ export const HELP_TEXT = [
   "/visual <task>         run screenshot-driven visual computer autonomy",
   "/status                show controller and permission status",
   "/tools                 list native, visual, and MCP tools",
+  "/session new           start a persistent conversation",
+  "/session <id>          switch to an existing conversation",
+  "/sessions              list recent conversations",
+  "/resume                resume an interrupted task",
   "/approve <tool>        approve a gated tool for the next prompt only",
   "/revoke <tool>         remove a pending next-run approval",
   "/clear                 clear the visible transcript",

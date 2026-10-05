@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+import os
+import secrets
+
+from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from . import __version__
@@ -32,6 +35,7 @@ class RunRequest(BaseModel):
     attachments: list[str] = Field(default_factory=list)
     max_steps: int | None = Field(default=None, ge=1)
     approved_tools: list[str] = Field(default_factory=list)
+    session_id: str | None = None
 
 
 class RunResponse(BaseModel):
@@ -55,12 +59,30 @@ class ComputerRunResponse(BaseModel):
     tool_calls: int
 
 
+class SessionCreateRequest(BaseModel):
+    capability: Capability = Capability.REASONING
+
+
+class SessionResumeRequest(BaseModel):
+    max_steps: int | None = Field(default=None, ge=1)
+    approved_tools: list[str] = Field(default_factory=list)
+
+
 def create_app(agent: SovereignAgent) -> FastAPI:
     app = FastAPI(
         title="Sovereign",
         version=__version__,
         description="Local-first AI agent control plane.",
     )
+
+    @app.middleware("http")
+    async def require_local_token(request: Request, call_next):
+        token = os.getenv("SOVEREIGN_API_TOKEN")
+        if token and not secrets.compare_digest(
+            request.headers.get("authorization", ""), f"Bearer {token}"
+        ):
+            return Response(status_code=401, content="Unauthorized")
+        return await call_next(request)
 
     @app.get("/health")
     async def health() -> dict[str, object]:
@@ -107,6 +129,7 @@ def create_app(agent: SovereignAgent) -> FastAPI:
                 request.attachments,
                 request.max_steps,
                 request.approved_tools,
+                request.session_id,
             )
             return RunResponse(
                 text=result.text,
@@ -135,10 +158,50 @@ def create_app(agent: SovereignAgent) -> FastAPI:
         except (ValueError, RuntimeError, PermissionError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.post("/v1/sessions", status_code=201)
+    async def create_session(request: SessionCreateRequest) -> dict[str, object]:
+        return agent.sessions.create(request.capability).summary()
+
+    @app.get("/v1/sessions")
+    async def list_sessions() -> dict[str, object]:
+        return {"sessions": [item.summary() for item in agent.sessions.list()]}
+
+    @app.get("/v1/sessions/{session_id}")
+    async def get_session(session_id: str) -> dict[str, object]:
+        try:
+            session = agent.sessions.get(session_id)
+            return {**session.summary(), "messages": session.messages}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/v1/sessions/{session_id}/resume", response_model=RunResponse)
+    async def resume_session(session_id: str, request: SessionResumeRequest) -> RunResponse:
+        try:
+            result = await agent.run(
+                "", max_steps=request.max_steps, approved_tools=request.approved_tools,
+                session_id=session_id, resume=True,
+            )
+            return RunResponse(
+                text=result.text, backend=result.backend, capability=result.capability,
+                steps=result.steps, tool_calls=result.tool_calls,
+            )
+        except (ValueError, RuntimeError, PermissionError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.delete("/v1/sessions/{session_id}", status_code=204)
+    async def delete_session(session_id: str) -> Response:
+        try:
+            agent.sessions.delete(session_id)
+            return Response(status_code=204)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     return app
 
 
 def serve(agent: SovereignAgent, host: str = "127.0.0.1", port: int = 8765) -> None:
     import uvicorn
 
+    if host not in {"127.0.0.1", "::1", "localhost"} and not os.getenv("SOVEREIGN_API_TOKEN"):
+        raise ValueError("non-loopback API binding requires SOVEREIGN_API_TOKEN")
     uvicorn.run(create_app(agent), host=host, port=port, log_level="info")

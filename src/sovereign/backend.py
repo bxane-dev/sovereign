@@ -29,6 +29,10 @@ class BackendExecutor:
             return await self._complete_openai(spec, messages, tools)
         if spec.protocol == "sovereign":
             return await asyncio.to_thread(self._complete_sovereign_sync, spec, messages, tools, capability)
+        if spec.protocol == "ollama":
+            return await asyncio.to_thread(self._complete_ollama_sync, spec, messages, tools)
+        if spec.protocol == "anthropic":
+            return await asyncio.to_thread(self._complete_anthropic_sync, spec, messages, tools)
         raise BackendExecutionError(f"unsupported backend protocol: {spec.protocol}")
 
     @staticmethod
@@ -124,6 +128,187 @@ class BackendExecutor:
         if not isinstance(data, dict):
             raise BackendExecutionError(f"backend {spec.name!r} returned a non-object JSON response")
         return self._parse_sovereign(data)
+
+    @staticmethod
+    def _post_json(spec: BackendSpec, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+        request = urllib.request.Request(
+            spec.endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=spec.timeout_seconds) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:1000]
+            raise BackendExecutionError(f"backend {spec.name!r} returned HTTP {exc.code}: {detail}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise BackendExecutionError(f"backend {spec.name!r} request failed: {exc}") from exc
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise BackendExecutionError(f"backend {spec.name!r} returned invalid JSON") from exc
+        if not isinstance(data, dict):
+            raise BackendExecutionError(f"backend {spec.name!r} returned a non-object response")
+        return data
+
+    @staticmethod
+    def _ollama_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        converted = []
+        for message in messages:
+            role = message["role"]
+            content = message.get("content")
+            images: list[str] = []
+            if isinstance(content, list):
+                parts = []
+                for block in content:
+                    if block.get("type") == "text":
+                        parts.append(block.get("text", ""))
+                    elif block.get("type") == "image_url":
+                        url = block["image_url"]["url"]
+                        if not url.startswith("data:image/") or ";base64," not in url:
+                            raise BackendExecutionError("Ollama requires inline base64 images")
+                        images.append(url.split(",", 1)[1])
+                content = "\n".join(parts)
+            item: dict[str, Any] = {"role": role, "content": content or ""}
+            if images:
+                item["images"] = images
+            if role == "assistant" and message.get("tool_calls"):
+                item["tool_calls"] = [
+                    {
+                        "function": {
+                            "name": call["function"]["name"],
+                            "arguments": json.loads(call["function"]["arguments"]),
+                        }
+                    }
+                    for call in message["tool_calls"]
+                ]
+            converted.append(item)
+        return converted
+
+    def _complete_ollama_sync(
+        self, spec: BackendSpec, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+    ) -> BackendReply:
+        if not spec.model:
+            raise BackendExecutionError("Ollama backend requires a model")
+        payload = {
+            **dict(spec.options),
+            "model": spec.model,
+            "messages": self._ollama_messages(messages),
+            "stream": False,
+        }
+        if tools:
+            payload["tools"] = tools
+        headers = {"Content-Type": "application/json", **ComputeMesh.resolved_headers(spec)}
+        data = self._post_json(spec, payload, headers)
+        message = data.get("message")
+        if not isinstance(message, dict):
+            raise BackendExecutionError("Ollama response is missing message")
+        calls = []
+        for index, item in enumerate(message.get("tool_calls") or []):
+            function = item.get("function", {})
+            arguments = function.get("arguments", {})
+            if not function.get("name") or not isinstance(arguments, dict):
+                raise BackendExecutionError("Ollama returned an invalid tool call")
+            calls.append(ToolCall(
+                id=str(item.get("id") or f"call_{index + 1}"),
+                name=str(function["name"]), arguments=arguments,
+            ))
+        return BackendReply(text=str(message.get("content") or ""), tool_calls=tuple(calls))
+
+    @staticmethod
+    def _anthropic_messages(
+        messages: list[dict[str, Any]],
+    ) -> tuple[str | None, list[dict[str, Any]]]:
+        system_parts: list[str] = []
+        converted: list[dict[str, Any]] = []
+        for message in messages:
+            role = message["role"]
+            content = message.get("content")
+            if role == "system":
+                system_parts.append(str(content or ""))
+                continue
+            if role == "tool":
+                block = {
+                    "type": "tool_result",
+                    "tool_use_id": message["tool_call_id"],
+                    "content": str(content or ""),
+                }
+                if converted and converted[-1]["role"] == "user" and isinstance(converted[-1]["content"], list) and converted[-1]["content"][0].get("type") == "tool_result":
+                    converted[-1]["content"].append(block)
+                else:
+                    converted.append({"role": "user", "content": [block]})
+                continue
+            blocks: list[dict[str, Any]] = []
+            if isinstance(content, str) and content:
+                blocks.append({"type": "text", "text": content})
+            elif isinstance(content, list):
+                for block in content:
+                    if block.get("type") == "text":
+                        blocks.append({"type": "text", "text": block.get("text", "")})
+                    elif block.get("type") == "image_url":
+                        url = block["image_url"]["url"]
+                        if not url.startswith("data:image/") or ";base64," not in url:
+                            raise BackendExecutionError("Anthropic requires inline base64 images")
+                        media_type = url[5:].split(";", 1)[0]
+                        blocks.append({
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": media_type, "data": url.split(",", 1)[1]},
+                        })
+            if role == "assistant":
+                for call in message.get("tool_calls") or []:
+                    blocks.append({
+                        "type": "tool_use", "id": call["id"],
+                        "name": call["function"]["name"],
+                        "input": json.loads(call["function"]["arguments"]),
+                    })
+            converted.append({"role": role, "content": blocks})
+        return "\n".join(system_parts) or None, converted
+
+    def _complete_anthropic_sync(
+        self, spec: BackendSpec, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+    ) -> BackendReply:
+        if not spec.model:
+            raise BackendExecutionError("Anthropic backend requires a model")
+        system, converted = self._anthropic_messages(messages)
+        payload: dict[str, Any] = {
+            **dict(spec.options), "model": spec.model,
+            "max_tokens": spec.options.get("max_tokens", 1024),
+            "messages": converted,
+        }
+        if system:
+            payload["system"] = system
+        if tools:
+            payload["tools"] = [
+                {
+                    "name": item["function"]["name"],
+                    "description": item["function"].get("description", ""),
+                    "input_schema": item["function"]["parameters"],
+                }
+                for item in tools
+            ]
+        headers = ComputeMesh.resolved_headers(spec)
+        api_key = headers.pop("x-api-key", None) or os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise BackendExecutionError("Anthropic backend requires ANTHROPIC_API_KEY")
+        data = self._post_json(spec, payload, {
+            "Content-Type": "application/json", "x-api-key": api_key,
+            "anthropic-version": "2023-06-01", **headers,
+        })
+        blocks = data.get("content")
+        if not isinstance(blocks, list):
+            raise BackendExecutionError("Anthropic response is missing content")
+        text = "".join(str(block.get("text", "")) for block in blocks if block.get("type") == "text")
+        calls = []
+        for block in blocks:
+            if block.get("type") == "tool_use":
+                if not block.get("id") or not block.get("name") or not isinstance(block.get("input"), dict):
+                    raise BackendExecutionError("Anthropic returned an invalid tool call")
+                calls.append(ToolCall(
+                    id=str(block["id"]), name=str(block["name"]), arguments=block["input"]
+                ))
+        return BackendReply(text=text, tool_calls=tuple(calls))
 
     @staticmethod
     def _parse_openai(data: dict[str, Any]) -> BackendReply:

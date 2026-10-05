@@ -38,6 +38,21 @@ export interface RunRequest {
   attachments?: string[];
   max_steps?: number;
   approved_tools?: string[];
+  session_id?: string;
+}
+
+export interface SessionSummary {
+  id: string;
+  capability: Capability;
+  status: "idle" | "running" | "completed" | "interrupted";
+  created_at: string;
+  updated_at: string;
+  error: string | null;
+  message_count: number;
+}
+
+export interface SessionDetail extends SessionSummary {
+  messages: Array<Record<string, unknown>>;
 }
 
 export interface RunResponse {

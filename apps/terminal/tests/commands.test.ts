@@ -34,5 +34,9 @@ describe("terminal commands", () => {
     expect(parseInput("/clear")).toEqual({kind: "clear"});
     expect(parseInput("/help")).toEqual({kind: "help"});
     expect(parseInput("/quit")).toEqual({kind: "quit"});
+    expect(parseInput("/session new")).toEqual({kind: "session_new"});
+    expect(parseInput("/session abc")).toEqual({kind: "session_use", id: "abc"});
+    expect(parseInput("/sessions")).toEqual({kind: "sessions"});
+    expect(parseInput("/resume")).toEqual({kind: "resume"});
   });
 });

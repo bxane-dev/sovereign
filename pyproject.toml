@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sovereign-agent"
-version = "7.1.0"
+version = "8.0.0"
 description = "Local-first AI agent orchestration with FastAPI, MCP, permission-gated computer control, visual autonomy, and a Bun/Ink terminal client."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -28,6 +28,7 @@ classifiers = [
 ml = ["torch>=2.4"]
 desktop = ["pyautogui>=0.9.54", "mss>=9", "pillow>=10"]
 dev = ["pytest>=8", "httpx>=0.27"]
+build = ["pyinstaller>=6.0"]
 
 [project.scripts]
 sovereign = "sovereign.cli:main"

@@ -33,6 +33,7 @@ export function App({api}: {api: SovereignApi}) {
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [status, setStatus] = useState<SovereignStatus | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [lines, setLines] = useState<TranscriptLine[]>([
     {
       id: 1,
@@ -72,7 +73,10 @@ export function App({api}: {api: SovereignApi}) {
   };
 
   useEffect(() => {
-    void refreshStatus().catch((error) => {
+    void refreshStatus().then(() => api.createSession()).then((session) => {
+      setSessionId(session.id);
+      append("system", `session ${session.id}`);
+    }).catch((error) => {
       append(
         "error",
         error instanceof Error ? error.message : String(error),
@@ -154,6 +158,37 @@ export function App({api}: {api: SovereignApi}) {
         return;
       }
 
+      if (parsed.kind === "session_new") {
+        const session = await api.createSession();
+        setSessionId(session.id);
+        append("system", `session ${session.id}`);
+        return;
+      }
+
+      if (parsed.kind === "session_use") {
+        const session = await api.getSession(parsed.id);
+        setSessionId(session.id);
+        append("system", `using session ${session.id} (${session.status}, ${session.message_count} messages)`);
+        return;
+      }
+
+      if (parsed.kind === "sessions") {
+        const result = await api.listSessions();
+        append("system", result.sessions.map((item) =>
+          `${item.id} ${item.status} ${item.message_count} messages`
+        ).join("\n") || "(no sessions)");
+        return;
+      }
+
+      if (parsed.kind === "resume") {
+        if (!sessionId) throw new Error("create or select a session first");
+        const approvedTools = [...pendingApprovals];
+        setPendingApprovals(new Set());
+        const result = await api.resumeSession(sessionId, approvedTools);
+        append("assistant", `${result.text}\n[resumed session ${sessionId}]`);
+        return;
+      }
+
       if (parsed.kind === "prompt" || parsed.kind === "visual") {
         const approvedTools = [...pendingApprovals];
         setPendingApprovals(new Set());
@@ -176,6 +211,7 @@ export function App({api}: {api: SovereignApi}) {
         const result = await api.run({
           prompt: parsed.prompt,
           approved_tools: approvedTools,
+          ...(sessionId ? {session_id: sessionId} : {}),
         });
         setConnected(true);
         append(
@@ -233,6 +269,8 @@ export function App({api}: {api: SovereignApi}) {
               : "connecting"}
         </Text>
       </Box>
+
+      {sessionId ? <Text dimColor>session: {sessionId}</Text> : null}
 
       <Box flexDirection="column" marginTop={1}>
         {visibleLines.map((line) => (

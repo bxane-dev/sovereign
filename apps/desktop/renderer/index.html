@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <title>Sovereign</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand"><div class="mark">S</div><div><strong>Sovereign</strong><small>Local agent workspace</small></div></div>
+      <button id="new-session" class="primary">New conversation</button>
+      <div class="section-label">Conversations</div>
+      <div id="sessions" class="session-list"></div>
+      <div class="sidebar-bottom"><span id="connection" class="status">Connecting</span><button id="refresh" class="small">Refresh</button></div>
+    </aside>
+    <main class="main">
+      <header><div><h1 id="title">Conversation</h1><p id="subtitle">A local, permission gated agent</p></div><span id="version" class="badge"></span></header>
+      <div id="messages" class="messages" role="log" aria-live="polite"></div>
+      <form id="composer" class="composer">
+        <label for="prompt">Message</label>
+        <textarea id="prompt" rows="3" placeholder="Ask Sovereign to help with a task…" required></textarea>
+        <div class="composer-options"><label><input id="visual" type="checkbox"> Use desktop vision</label><span id="mode-note">Reasoning conversation</span></div>
+        <div id="approvals" class="approvals"></div>
+        <input id="extra-approval" class="extra-approval" type="text" placeholder="Other exact tool approval, e.g. server__tool (optional)" aria-label="Other exact tool approval">
+        <div class="composer-footer"><span id="feedback" role="status"></span><div><button type="button" id="resume" class="secondary" hidden>Resume task</button><button id="send" class="primary" type="submit">Send</button></div></div>
+      </form>
+      <div id="update" class="update" hidden><span id="update-text"></span><button id="install-update" class="small">Install update</button></div>
+    </main>
+  </div>
+</body>
+</html>
