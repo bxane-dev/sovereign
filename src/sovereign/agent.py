@@ -21,7 +21,7 @@ from .models import (
     RunResult,
     VisualRunResult,
 )
-from .native_tools import NativeToolRuntime
+from .native_tools import NativeToolError, NativeToolRuntime
 from .permissions import PermissionPolicy
 
 
@@ -237,6 +237,12 @@ class SovereignAgent:
         step_limit = max_steps if max_steps is not None else self.config.max_visual_steps
         if step_limit < 1:
             raise ValueError("max_steps must be at least 1")
+        if min(
+            self.config.visual_capture_retries,
+            self.config.visual_backend_retries,
+            self.config.max_visual_recoveries,
+        ) < 0 or self.config.visual_retry_delay_seconds < 0:
+            raise ValueError("visual retry and recovery settings cannot be negative")
 
         messages: list[dict[str, Any]] = [
             {
@@ -255,21 +261,18 @@ class SovereignAgent:
         approvals = tuple(approved_tools)
         total_tool_calls = 0
         last_backend = ""
+        recoveries = 0
 
         for frame in range(1, step_limit + 1):
-            screenshot = await self.native_tools.capture_screen()
-            screenshot_path = screenshot.get("path")
-            if not screenshot_path:
-                raise ToolExecutionError("screen capture did not return a path")
-            attachment = self.attachments.inspect(str(screenshot_path))
-            if not attachment.media_type.startswith("image/"):
-                raise ToolExecutionError("screen capture is not an image")
+            screenshot, attachment = await self._capture_visual_frame()
 
             screen_prompt = (
                 f"Task: {prompt}\n"
                 f"Current screen frame: {frame}. "
                 f"Resolution: {screenshot.get('width', '?')}x{screenshot.get('height', '?')}. "
+                f"Frame SHA-256: {attachment.sha256}. "
                 "Inspect this fresh screenshot. If the task is complete, answer without a tool call. "
+                "Verify the previous action against this frame before choosing another action. "
                 "Otherwise choose exactly one approved desktop action."
             )
             messages.append(
@@ -279,11 +282,7 @@ class SovereignAgent:
                 }
             )
 
-            reply, backend = await self._complete_with_failover(
-                Capability.VISION,
-                messages,
-                action_tools,
-            )
+            reply, backend = await self._complete_visual_with_retries(messages, action_tools)
             last_backend = backend.name
 
             if not reply.tool_calls:
@@ -304,14 +303,31 @@ class SovereignAgent:
                 raise ToolExecutionError(
                     f"vision backend requested non-visual or unauthorized tool: {call.name}"
                 )
+            if frame == step_limit:
+                raise AgentStepLimit(
+                    f"visual agent reached the {step_limit}-frame limit before an action "
+                    "could be verified against a fresh screenshot"
+                )
 
             messages.append(self._assistant_tool_message(reply))
-            result = await self.native_tools.execute(
-                call.name,
-                call.arguments,
-                approvals,
-            )
             total_tool_calls += 1
+            try:
+                result = await self.native_tools.execute(
+                    call.name,
+                    call.arguments,
+                    approvals,
+                )
+            except PermissionError:
+                raise
+            except (NativeToolError, ValueError, TypeError, KeyError, OSError) as exc:
+                recoveries += 1
+                if recoveries > self.config.max_visual_recoveries:
+                    raise ToolExecutionError(
+                        f"visual action failed {recoveries} times; last error: {exc}"
+                    ) from exc
+                result = {"ok": False, "error": str(exc)}
+            else:
+                recoveries = 0
             messages.append(
                 {
                     "role": "tool",
@@ -329,6 +345,47 @@ class SovereignAgent:
             f"visual agent reached the {step_limit}-frame limit after "
             f"{total_tool_calls} actions; last backend={last_backend}"
         )
+
+    async def _capture_visual_frame(self) -> tuple[dict[str, Any], Attachment]:
+        for attempt in range(self.config.visual_capture_retries + 1):
+            try:
+                screenshot = await self.native_tools.capture_screen()
+                screenshot_path = screenshot.get("path")
+                if not screenshot_path:
+                    raise ToolExecutionError("screen capture did not return a path")
+                attachment = self.attachments.inspect(str(screenshot_path))
+                if not attachment.media_type.startswith("image/"):
+                    raise ToolExecutionError("screen capture is not an image")
+                return screenshot, attachment
+            except PermissionError:
+                raise
+            except (NativeToolError, OSError, AttachmentError, ToolExecutionError) as exc:
+                if attempt == self.config.visual_capture_retries:
+                    raise ToolExecutionError(
+                        f"screen capture failed after {attempt + 1} attempts: {exc}"
+                    ) from exc
+                await asyncio.sleep(self.config.visual_retry_delay_seconds * (2**attempt))
+        raise AssertionError("unreachable")
+
+    async def _complete_visual_with_retries(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> tuple[BackendReply, BackendSpec]:
+        failures: list[str] = []
+        candidates = self.mesh.candidates(Capability.VISION)
+        for backend in candidates:
+            for attempt in range(self.config.visual_backend_retries + 1):
+                try:
+                    return await self.executor.complete(backend, messages, tools, Capability.VISION), backend
+                except BackendExecutionError as exc:
+                    if attempt == self.config.visual_backend_retries:
+                        failures.append(f"{backend.name}: {exc}")
+                    else:
+                        await asyncio.sleep(self.config.visual_retry_delay_seconds * (2**attempt))
+        if failures:
+            raise BackendExecutionError("all vision backends failed: " + " | ".join(failures))
+        raise NoBackendAvailable("visual autonomy requires a healthy vision backend")
 
     def status(self) -> dict[str, object]:
         return {

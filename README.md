@@ -15,6 +15,9 @@ v7.1 adds a screenshot-driven computer loop:
 7. The loop stops when the model returns a final answer without a tool call or the frame limit is reached.
 
 This prevents a model from executing a long chain of clicks against an old screenshot.
+Every frame carries a SHA-256 identifier. The next model turn receives the previous action result and a new image so it can verify what changed. If an action fails, Sovereign reports the error to the model and captures a fresh frame before another decision. Permission denials stop the run immediately.
+
+Screen capture and vision backend requests have bounded retries. Backend exhaustion falls through to the next healthy vision backend; a transient failure does not permanently remove a backend from later runs. Desktop actions are never automatically retried because a failed call may have partially changed the UI. The final frame is reserved for verification, so Sovereign will not execute an action that cannot be checked with another screenshot.
 
 ## Required opt-ins
 
@@ -87,6 +90,10 @@ Example `~/.sovereign/config.json`:
       "visual_autonomy_enabled": true,
       "max_visual_steps": 12,
       "visual_action_delay_seconds": 0.35,
+      "visual_capture_retries": 2,
+      "visual_backend_retries": 2,
+      "visual_retry_delay_seconds": 0.25,
+      "max_visual_recoveries": 2,
       "backends": [
         {
           "name": "vision-model",
@@ -162,5 +169,9 @@ Optional local ML support:
 - `full`: unrestricted path checks only when `full_access_opt_in=true`
 
 Computer control defaults off. Visual autonomy defaults off. Filesystem writes default off. Remote model output and terminal input never bypass these local gates.
+
+## Verification
+
+Run `python -m pytest` for the control plane and visual loop tests. CI runs the Python tests on Linux, Windows, and macOS, and runs the Bun terminal type check and tests on Linux. The visual tests use a simulated desktop and backend; a live vision backend and desktop integration still require a manual smoke run in the target environment.
 
 Current version: 7.1.0.
