@@ -1,23 +1,29 @@
-# Sovereign v6.7
+# Sovereign v6.8
 
-Sovereign is a local-first AI agent controller. v6.7 adds real backend execution and an autonomous MCP tool loop while keeping all routing and permissions under Sovereign's control.
+Sovereign is a local-first AI agent controller. v6.8 moves the control-plane architecture onto FastAPI, Pydantic, asyncio, and the official OpenAI Python SDK while preserving Sovereign's permission system, compute mesh, and MCP tool loop.
 
-## v6.7 execution milestone
+## v6.8 stack alignment
 
-- Executes requests against OpenAI-compatible or Sovereign-native JSON backends.
-- Automatic failover across healthy backends that provide the requested capability.
-- Discovers MCP stdio tools, exposes them to the selected model, executes requested calls, and feeds results back to the model.
-- Namespaces MCP tools per server to avoid ambiguous tool names.
-- Sends the MCP initialized notification after handshake.
-- Supports prompt execution from the CLI and local HTTP API.
-- Keeps sandbox / selected-root / explicit full-access path policy in front of attachment access.
-- Supports inline image attachments for compatible vision backends, with a configurable size limit.
-- Environment-backed secrets remain local and are resolved only when a backend call is made.
+- Python remains the primary orchestration language.
+- FastAPI provides the local HTTP/API control plane and OpenAPI schema.
+- Pydantic validates request and response structures.
+- asyncio drives backend calls and autonomous MCP tool execution.
+- The official OpenAI Python SDK handles OpenAI-compatible chat-completions backends asynchronously.
+- pytest remains the automated test framework.
+- PyTorch is available as the optional `ml` extra for future local model/runtime components instead of being forced onto lightweight controller installs.
 
 ## Install
 
     python -m pip install -e .
     sovereign doctor
+
+Development install:
+
+    python -m pip install -e ".[dev]"
+
+Optional local ML runtime:
+
+    python -m pip install -e ".[ml]"
 
 ## Configure
 
@@ -52,12 +58,13 @@ Headers can reference environment variables, for example `"Authorization": "env:
     sovereign run "Inspect the project and summarize the failing tests"
     sovereign serve --port 8765
 
-Local API endpoints:
+FastAPI exposes:
 
 - `GET /health`
 - `GET /v1/status`
 - `POST /v1/route`
 - `POST /v1/run`
+- interactive OpenAPI docs at `/docs`
 
 ## Permission model
 
@@ -67,4 +74,4 @@ Local API endpoints:
 
 Remote model output is never treated as permission to bypass the local policy.
 
-Current version: 6.7.0.
+Current version: 6.8.0.

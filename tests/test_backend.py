@@ -10,19 +10,27 @@ from sovereign.models import BackendSpec, Capability
 class Handler(BaseHTTPRequestHandler):
     payload = None
     authorization = None
+    path_seen = None
 
     def log_message(self, format, *args):
         return
 
     def do_POST(self):
+        Handler.path_seen = self.path
         length = int(self.headers["Content-Length"])
         Handler.payload = json.loads(self.rfile.read(length))
         Handler.authorization = self.headers.get("Authorization")
         body = json.dumps(
             {
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "demo",
                 "choices": [
                     {
+                        "index": 0,
                         "message": {
+                            "role": "assistant",
                             "content": "checking",
                             "tool_calls": [
                                 {
@@ -31,9 +39,11 @@ class Handler(BaseHTTPRequestHandler):
                                     "function": {"name": "tools__echo", "arguments": '{"text":"hi"}'},
                                 }
                             ],
-                        }
+                        },
+                        "finish_reason": "tool_calls",
                     }
-                ]
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
             }
         ).encode()
         self.send_response(200)
@@ -43,7 +53,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def test_openai_backend_executes_real_http_request(monkeypatch):
+def test_openai_backend_uses_official_async_sdk(monkeypatch):
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -65,6 +75,7 @@ def test_openai_backend_executes_real_http_request(monkeypatch):
                 Capability.REASONING,
             )
         )
+        assert Handler.path_seen == "/v1/chat/completions"
         assert Handler.payload["model"] == "demo"
         assert Handler.authorization == "Bearer secret"
         assert reply.text == "checking"

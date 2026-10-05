@@ -1,9 +1,7 @@
-import json
-import threading
-import urllib.request
+from fastapi.testclient import TestClient
 
 from sovereign.agent import SovereignAgent
-from sovereign.api import SovereignHTTPServer
+from sovereign.api import create_app
 from sovereign.config import SovereignConfig
 from sovereign.models import BackendReply, BackendSpec, Capability
 
@@ -17,35 +15,27 @@ def test_api_health_status_route_and_run():
     cfg = SovereignConfig(
         backends=[BackendSpec("local", "http://local", frozenset({Capability.REASONING}), priority=1)]
     )
-    server = SovereignHTTPServer(("127.0.0.1", 0), SovereignAgent(cfg, executor=FakeExecutor()))
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-    try:
-        with urllib.request.urlopen(f"http://{host}:{port}/health") as response:
-            assert json.load(response)["ok"] is True
-        request = urllib.request.Request(
-            f"http://{host}:{port}/v1/route",
-            data=json.dumps({"capability": "reasoning"}).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(request) as response:
-            body = json.load(response)
-        assert body == {"capability": "reasoning", "backend": "local", "attachments": []}
+    client = TestClient(create_app(SovereignAgent(cfg, executor=FakeExecutor())))
 
-        request = urllib.request.Request(
-            f"http://{host}:{port}/v1/run",
-            data=json.dumps({"prompt": "hello"}).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(request) as response:
-            body = json.load(response)
-        assert body["text"] == "api answer"
-        assert body["backend"] == "local"
-        assert body["steps"] == 1
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
+    health = client.get("/health")
+    assert health.status_code == 200
+    assert health.json()["ok"] is True
+
+    route = client.post("/v1/route", json={"capability": "reasoning"})
+    assert route.status_code == 200
+    assert route.json() == {"capability": "reasoning", "backend": "local", "attachments": []}
+
+    run = client.post("/v1/run", json={"prompt": "hello"})
+    assert run.status_code == 200
+    assert run.json()["text"] == "api answer"
+    assert run.json()["backend"] == "local"
+    assert run.json()["steps"] == 1
+
+
+def test_api_uses_pydantic_validation():
+    cfg = SovereignConfig(
+        backends=[BackendSpec("local", "http://local", frozenset({Capability.REASONING}))]
+    )
+    client = TestClient(create_app(SovereignAgent(cfg, executor=FakeExecutor())))
+    response = client.post("/v1/run", json={"prompt": "", "max_steps": 0})
+    assert response.status_code == 422

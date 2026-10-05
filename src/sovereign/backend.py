@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import urllib.error
 import urllib.request
 from typing import Any
@@ -15,7 +16,7 @@ class BackendExecutionError(RuntimeError):
 
 
 class BackendExecutor:
-    """Executes a normalized Sovereign conversation against a configured backend."""
+    """Executes normalized Sovereign conversations against configured backends."""
 
     async def complete(
         self,
@@ -24,34 +25,81 @@ class BackendExecutor:
         tools: list[dict[str, Any]],
         capability: Capability,
     ) -> BackendReply:
-        return await asyncio.to_thread(self._complete_sync, spec, messages, tools, capability)
+        if spec.protocol == "openai":
+            return await self._complete_openai(spec, messages, tools)
+        if spec.protocol == "sovereign":
+            return await asyncio.to_thread(self._complete_sovereign_sync, spec, messages, tools, capability)
+        raise BackendExecutionError(f"unsupported backend protocol: {spec.protocol}")
 
-    def _complete_sync(
+    @staticmethod
+    def _openai_base_url(endpoint: str) -> str:
+        normalized = endpoint.rstrip("/")
+        suffix = "/chat/completions"
+        return normalized[: -len(suffix)] if normalized.endswith(suffix) else normalized
+
+    async def _complete_openai(
+        self,
+        spec: BackendSpec,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> BackendReply:
+        try:
+            from openai import AsyncOpenAI
+        except ImportError as exc:
+            raise BackendExecutionError("OpenAI SDK is not installed") from exc
+
+        headers = ComputeMesh.resolved_headers(spec)
+        raw_auth = headers.pop("Authorization", None)
+        if raw_auth and raw_auth.lower().startswith("bearer "):
+            api_key = raw_auth[7:].strip()
+        else:
+            api_key = os.getenv("OPENAI_API_KEY") or "sovereign-local"
+            if raw_auth:
+                headers["Authorization"] = raw_auth
+
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=self._openai_base_url(spec.endpoint),
+            timeout=spec.timeout_seconds,
+            max_retries=0,
+            default_headers=headers or None,
+        )
+        params: dict[str, Any] = {
+            "model": spec.model or "default",
+            "messages": messages,
+        }
+        params.update(dict(spec.options))
+        if tools:
+            params["tools"] = tools
+            params.setdefault("tool_choice", "auto")
+        try:
+            response = await client.chat.completions.create(**params)
+        except Exception as exc:
+            raise BackendExecutionError(f"backend {spec.name!r} request failed: {exc}") from exc
+        finally:
+            await client.close()
+
+        data = response.model_dump(mode="json")
+        if not isinstance(data, dict):
+            raise BackendExecutionError(f"backend {spec.name!r} returned an invalid SDK response")
+        return self._parse_openai(data)
+
+    def _complete_sovereign_sync(
         self,
         spec: BackendSpec,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         capability: Capability,
     ) -> BackendReply:
-        if spec.protocol == "openai":
-            payload = dict(spec.options)
-            payload.update({"model": spec.model or "default", "messages": messages})
-            if tools:
-                payload["tools"] = tools
-                payload.setdefault("tool_choice", "auto")
-        elif spec.protocol == "sovereign":
-            payload = dict(spec.options)
-            payload.update(
-                {
-                    "capability": capability.value,
-                    "model": spec.model,
-                    "messages": messages,
-                    "tools": tools,
-                }
-            )
-        else:
-            raise BackendExecutionError(f"unsupported backend protocol: {spec.protocol}")
-
+        payload = dict(spec.options)
+        payload.update(
+            {
+                "capability": capability.value,
+                "model": spec.model,
+                "messages": messages,
+                "tools": tools,
+            }
+        )
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         headers.update(ComputeMesh.resolved_headers(spec))
         request = urllib.request.Request(
@@ -75,7 +123,7 @@ class BackendExecutor:
             raise BackendExecutionError(f"backend {spec.name!r} returned invalid JSON") from exc
         if not isinstance(data, dict):
             raise BackendExecutionError(f"backend {spec.name!r} returned a non-object JSON response")
-        return self._parse_openai(data) if spec.protocol == "openai" else self._parse_sovereign(data)
+        return self._parse_sovereign(data)
 
     @staticmethod
     def _parse_openai(data: dict[str, Any]) -> BackendReply:

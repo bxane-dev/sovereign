@@ -4,19 +4,29 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sovereign-agent"
-version = "6.7.0"
-description = "Local-first AI agent orchestration with permission-gated computer access, compute routing, attachments, and MCP tools."
+version = "6.8.0"
+description = "Local-first AI agent orchestration with FastAPI, Pydantic, async backend execution, MCP tools, and permission-gated computer access."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "bxane", email = "bxane-dev@users.noreply.github.com"}]
 license = {text = "MIT"}
-keywords = ["ai", "agent", "mcp", "local-first", "orchestration"]
+keywords = ["ai", "agent", "mcp", "fastapi", "pydantic", "local-first", "orchestration"]
+dependencies = [
+  "fastapi>=0.115",
+  "pydantic>=2.9",
+  "uvicorn>=0.30",
+  "openai>=1.50",
+]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
 ]
+
+[project.optional-dependencies]
+ml = ["torch>=2.4"]
+dev = ["pytest>=8", "httpx>=0.27"]
 
 [project.scripts]
 sovereign = "sovereign.cli:main"
