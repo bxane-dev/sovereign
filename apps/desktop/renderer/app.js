@@ -1,6 +1,8 @@
 const $ = (id) => document.getElementById(id);
 let currentSession = null;
 let busy = false;
+let hasReasoningBackend = false;
+let hasVisionBackend = false;
 
 const request = (method, route, body) => window.sovereign.request(method, route, body);
 
@@ -17,9 +19,9 @@ function addMessage(role, content) {
 
 function setBusy(value) {
   busy = value;
-  $("send").disabled = value;
   $("resume").disabled = value;
   $("feedback").textContent = value ? "Sovereign is working…" : "";
+  updateSendAvailability();
 }
 
 function clearApprovals() {
@@ -41,6 +43,7 @@ function messageText(content) {
 }
 
 async function loadSession(id) {
+  showPlugins(false);
   const session = await request("GET", `/v1/sessions/${id}`);
   currentSession = session;
   $("messages").replaceChildren();
@@ -53,10 +56,17 @@ async function loadSession(id) {
   if (!session.messages.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = "Start a conversation. Sovereign keeps its history on this device, so you can return to it later.";
+    const greeting = document.createElement("span");
+    greeting.textContent = "What can I help you with?";
+    empty.append(greeting);
+    if (!hasReasoningBackend) {
+      const setup = document.createElement("small");
+      setup.textContent = `Add a reasoning backend in ${$("config-path").textContent || "~/.sovereign/config.json"} to start chatting.`;
+      empty.append(setup);
+    }
     $("messages").append(empty);
   }
-  $("title").textContent = `Conversation ${id.slice(0, 8)}`;
+  $("title").textContent = "Sovereign";
   $("subtitle").textContent = `${session.status} · ${session.message_count} messages`;
   $("resume").hidden = session.status !== "interrupted";
   for (const item of $("sessions").children) item.classList.toggle("active", item.dataset.id === id);
@@ -94,11 +104,18 @@ async function initialize() {
     $("connection").textContent = "Core connected";
     $("connection").classList.add("online");
     $("version").textContent = `v${status.version}`;
-    const visionAvailable = status.computer_control_enabled && status.visual_autonomy_enabled &&
-      status.backends.some((backend) => backend.healthy && backend.enabled && backend.capabilities.includes("vision"));
+    hasVisionBackend = status.backends.some((backend) => backend.healthy && backend.enabled && backend.capabilities.includes("vision"));
+    const visionAvailable = status.computer_control_enabled && status.visual_autonomy_enabled && hasVisionBackend;
+    hasReasoningBackend = status.backends.some((backend) => backend.healthy && backend.enabled && backend.capabilities.includes("reasoning"));
     $("visual").disabled = !visionAvailable;
     if (!visionAvailable) $("visual").checked = false;
-    $("mode-note").textContent = visionAvailable ? "Reasoning conversation" : "Desktop vision needs an enabled vision backend";
+    $("mode-note").textContent = visionAvailable ? "Reasoning conversation" : "Desktop vision needs computer control, visual autonomy, and a vision backend";
+    updateSendAvailability();
+    $("prompt").placeholder = hasReasoningBackend
+      ? "Ask Sovereign to help with a task…"
+      : "Configure a reasoning backend to start chatting…";
+    $("config-path").textContent = status.config_path || "~/.sovereign/config.json";
+    renderPlugins(toolResponse.mcp_servers || []);
     $("approvals").replaceChildren();
     const actions = ["sovereign__write_text", ...toolResponse.visual_action_tools];
     for (const name of actions) {
@@ -113,19 +130,64 @@ async function initialize() {
     const {sessions} = await request("GET", "/v1/sessions");
     if (sessions.length) await refreshSessions(sessions[0].id);
     else await createSession();
-    if (status.backends.length === 0) {
-      addMessage("assistant", "No model backend is configured yet. Add one to ~/.sovereign/config.json, then select Refresh.");
-    }
   } catch (error) {
     $("connection").textContent = "Core unavailable";
     addMessage("error", error.message);
   }
 }
 
-$("new-session").addEventListener("click", () => void createSession().catch((error) => addMessage("error", error.message)));
+function renderPlugins(plugins) {
+  const list = $("plugin-list");
+  list.replaceChildren();
+  if (!plugins.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty plugin-empty";
+    empty.textContent = "No MCP plugins are configured on this device yet.";
+    list.append(empty);
+    return;
+  }
+  for (const name of plugins) {
+    const card = document.createElement("article");
+    card.className = "plugin-card";
+    const title = document.createElement("strong");
+    title.textContent = name;
+    const state = document.createElement("small");
+    state.textContent = "Configured · exact tool approval required per run";
+    card.append(title, state);
+    list.append(card);
+  }
+}
+
+function showPlugins(show) {
+  $("plugins-view").hidden = !show;
+  $("conversation-view").hidden = show;
+  $("plugins-button").classList.toggle("active", show);
+  $("chats-button").classList.toggle("selected", !show);
+  if (show) {
+    $("title").textContent = "Plugins";
+    $("subtitle").textContent = "Local integrations configured for Sovereign";
+  } else if (currentSession) {
+    $("title").textContent = `Conversation ${currentSession.id.slice(0, 8)}`;
+    $("subtitle").textContent = `${currentSession.status} · ${currentSession.message_count} messages`;
+  }
+}
+
+function updateSendAvailability() {
+  const backendAvailable = $("visual").checked ? hasVisionBackend : hasReasoningBackend;
+  $("send").disabled = busy || !backendAvailable;
+}
+
+$("new-session").addEventListener("click", () => {
+  showPlugins(false);
+  void createSession().catch((error) => addMessage("error", error.message));
+});
+$("plugins-button").addEventListener("click", () => showPlugins(true));
 $("refresh").addEventListener("click", () => void initialize());
 $("visual").addEventListener("change", () => {
-  $("mode-note").textContent = $("visual").checked ? "Desktop screenshot loop" : "Reasoning conversation";
+  $("mode-note").textContent = $("visual").checked
+    ? "Desktop screenshot loop"
+    : hasReasoningBackend ? "Reasoning conversation" : "Configure a reasoning backend before chatting";
+  updateSendAvailability();
 });
 $("composer").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -133,6 +195,8 @@ $("composer").addEventListener("submit", async (event) => {
   const prompt = $("prompt").value.trim();
   if (!prompt) return;
   const visual = $("visual").checked;
+  if (visual && !hasVisionBackend) return addMessage("error", "No healthy vision backend is available. Refresh status after configuring one.");
+  if (!visual && !hasReasoningBackend) return addMessage("error", "No healthy reasoning backend is available. Configure one, then select Refresh.");
   if (!visual && !currentSession) return addMessage("error", "Create a conversation first.");
   const approved_tools = selectedApprovals();
   clearApprovals();

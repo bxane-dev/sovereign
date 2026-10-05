@@ -10,7 +10,7 @@ from typing import Any, Iterable
 from . import __version__
 from .attachments import AttachmentError, AttachmentInspector
 from .backend import BackendExecutionError, BackendExecutor
-from .config import SovereignConfig
+from .config import DEFAULT_CONFIG, SovereignConfig
 from .mcp import MCPHub
 from .mesh import ComputeMesh, NoBackendAvailable
 from .models import (
@@ -459,6 +459,7 @@ class SovereignAgent:
         return {
             "version": __version__,
             "controller": "sovereign",
+            "config_path": str(DEFAULT_CONFIG.expanduser()),
             "permission_mode": self.config.permission_mode.value,
             "workspace": str(self.config.workspace.expanduser()),
             "backends": self.mesh.status(),

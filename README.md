@@ -6,6 +6,8 @@ Sovereign is a local-first AI agent controller with a Python execution core, a B
 
 The desktop shell starts its bundled Python core on a random loopback port with a per-launch bearer token. Its isolated renderer accesses only selected core endpoints through Electron IPC. The app offers persistent reasoning conversations, per-run action approvals, desktop vision tasks, and update checks against GitHub Releases.
 
+Use **Plugins** in the left sidebar to see configured MCP servers. MCP servers are added under `mcp_servers` in the local config file shown on that page, then loaded after restarting the app. There is no in-app plugin store yet. Chat also requires at least one healthy backend with the `reasoning` capability; new installs start with no backend configured.
+
 Development run:
 
     python -m pip install -e ".[desktop,dev]"

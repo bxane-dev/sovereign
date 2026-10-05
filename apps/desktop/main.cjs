@@ -63,22 +63,26 @@ async function startCore() {
 }
 
 async function apiRequest(_event, {method, route, body}) {
-  if (typeof method !== "string" || typeof route !== "string" || !allowedRoute(method, route)) {
-    throw new Error("API route is not allowed");
+  try {
+    if (typeof method !== "string" || typeof route !== "string" || !allowedRoute(method, route)) {
+      return {ok: false, error: "API route is not allowed"};
+    }
+    const serialized = body === undefined ? undefined : JSON.stringify(body);
+    if (serialized && serialized.length > 1_000_000) return {ok: false, error: "Request is too large"};
+    const response = await fetch(`http://127.0.0.1:${port}${route}`, {
+      method,
+      headers: {authorization: `Bearer ${token}`, "content-type": "application/json"},
+      body: serialized,
+      signal: AbortSignal.timeout(900000),
+    });
+    const text = await response.text();
+    let payload = null;
+    try { payload = text ? JSON.parse(text) : null; } catch (_) { payload = text; }
+    if (!response.ok) return {ok: false, error: payload?.detail || `HTTP ${response.status}`};
+    return {ok: true, payload};
+  } catch (error) {
+    return {ok: false, error: error?.message || "Request to Sovereign failed"};
   }
-  const serialized = body === undefined ? undefined : JSON.stringify(body);
-  if (serialized && serialized.length > 1_000_000) throw new Error("Request is too large");
-  const response = await fetch(`http://127.0.0.1:${port}${route}`, {
-    method,
-    headers: {authorization: `Bearer ${token}`, "content-type": "application/json"},
-    body: serialized,
-    signal: AbortSignal.timeout(900000),
-  });
-  const text = await response.text();
-  let payload = null;
-  try { payload = text ? JSON.parse(text) : null; } catch (_) { payload = text; }
-  if (!response.ok) throw new Error(payload?.detail || `HTTP ${response.status}`);
-  return payload;
 }
 
 function createWindow() {
