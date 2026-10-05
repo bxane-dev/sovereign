@@ -1,5 +1,5 @@
 const {app, BrowserWindow, ipcMain} = require("electron");
-const {spawn} = require("node:child_process");
+const {execFileSync, spawn} = require("node:child_process");
 const {randomBytes} = require("node:crypto");
 const {existsSync, writeFileSync} = require("node:fs");
 const net = require("node:net");
@@ -112,6 +112,19 @@ function createWindow() {
   }
 }
 
+function stopCore() {
+  if (!core || core.exitCode !== null) return;
+  if (process.platform === "win32") {
+    try {
+      execFileSync("taskkill", ["/PID", String(core.pid), "/T", "/F"], {windowsHide: true, stdio: "ignore"});
+    } catch (_) {
+      core.kill();
+    }
+    return;
+  }
+  core.kill();
+}
+
 async function checkUpdates() {
   if (!app.isPackaged) return;
   const {autoUpdater} = require("electron-updater");
@@ -147,4 +160,4 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0 && port) createWindow(); });
-app.on("before-quit", () => { if (core && core.exitCode === null) core.kill(); });
+app.on("before-quit", stopCore);
