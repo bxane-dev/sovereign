@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sovereign-agent"
+version = "6.6.0"
+description = "Local-first AI agent orchestration with permission-gated computer access, compute routing, attachments, and MCP tools."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "bxane", email = "bxane-dev@users.noreply.github.com"}]
+license = {text = "MIT"}
+keywords = ["ai", "agent", "mcp", "local-first", "orchestration"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+
+[project.scripts]
+sovereign = "sovereign.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
