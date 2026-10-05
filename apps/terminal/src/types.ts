@@ -22,11 +22,13 @@ export interface SovereignStatus {
   mcp_servers: string[];
   native_tools: string[];
   computer_control_enabled: boolean;
+  visual_autonomy_enabled: boolean;
   filesystem_write_enabled: boolean;
 }
 
 export interface ToolsResponse {
   native_tools: string[];
+  visual_action_tools: string[];
   mcp_servers: string[];
 }
 
@@ -43,5 +45,18 @@ export interface RunResponse {
   backend: string;
   capability: Capability;
   steps: number;
+  tool_calls: number;
+}
+
+export interface ComputerRunRequest {
+  prompt: string;
+  max_steps?: number;
+  approved_tools?: string[];
+}
+
+export interface ComputerRunResponse {
+  text: string;
+  backend: string;
+  frames: number;
   tool_calls: number;
 }

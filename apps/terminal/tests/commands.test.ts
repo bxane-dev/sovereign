@@ -10,6 +10,13 @@ describe("terminal commands", () => {
     });
   });
 
+  test("visual command carries the task", () => {
+    expect(parseInput("/visual open the editor")).toEqual({
+      kind: "visual",
+      prompt: "open the editor",
+    });
+  });
+
   test("approval commands preserve exact tool names", () => {
     expect(parseInput("/approve sovereign__mouse_click")).toEqual({
       kind: "approve",

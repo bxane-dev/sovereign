@@ -14,6 +14,15 @@ from .config import load_config
 from .models import Capability
 
 
+def _add_approval_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--approve-tool",
+        action="append",
+        default=[],
+        help="approve one gated native tool for this run; may be repeated",
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sovereign", description="Sovereign local-first agent controller")
     parser.add_argument("--config", type=Path, help="path to config.json")
@@ -23,17 +32,22 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("tools", help="list enabled native tools and MCP servers")
     route = sub.add_parser("route", help="show which backend would receive a capability")
     route.add_argument("capability", choices=[cap.value for cap in Capability])
+
     run = sub.add_parser("run", help="execute a prompt through Sovereign")
     run.add_argument("prompt")
     run.add_argument("--capability", choices=[cap.value for cap in Capability], default="reasoning")
     run.add_argument("--attach", action="append", default=[], type=Path)
     run.add_argument("--max-steps", type=int)
-    run.add_argument(
-        "--approve-tool",
-        action="append",
-        default=[],
-        help="approve one gated native tool for this run; may be repeated",
+    _add_approval_args(run)
+
+    computer = sub.add_parser(
+        "computer",
+        help="run the screenshot-driven visual computer agent",
     )
+    computer.add_argument("prompt")
+    computer.add_argument("--max-steps", type=int)
+    _add_approval_args(computer)
+
     server = sub.add_parser("serve", help="run the local HTTP API")
     server.add_argument("--host", default="127.0.0.1")
     server.add_argument("--port", type=int, default=8765)
@@ -56,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
             "mcp_servers": len(config.mcp_servers),
             "native_tools": agent.native_tools.names(),
             "computer_control_enabled": config.computer_control_enabled,
+            "visual_autonomy_enabled": config.visual_autonomy_enabled,
             "filesystem_write_enabled": config.filesystem_write_enabled,
         }
         print(json.dumps(report, indent=2))
@@ -68,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(
                 {
                     "native_tools": agent.native_tools.names(),
+                    "visual_action_tools": agent.native_tools.visual_action_names(),
                     "mcp_servers": agent.mcp.names(),
                 },
                 indent=2,
@@ -86,6 +102,16 @@ def main(argv: list[str] | None = None) -> int:
                 args.attach,
                 args.max_steps,
                 args.approve_tool,
+            )
+        )
+        print(result.text)
+        return 0
+    if args.command == "computer":
+        result = asyncio.run(
+            agent.run_visual(
+                args.prompt,
+                args.approve_tool,
+                args.max_steps,
             )
         )
         print(result.text)

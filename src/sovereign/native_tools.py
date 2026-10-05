@@ -93,6 +93,14 @@ class NativeToolRuntime:
         HOTKEY,
     }
 
+    _VISUAL_ACTIONS = {
+        MOUSE_MOVE,
+        MOUSE_CLICK,
+        TYPE_TEXT,
+        PRESS_KEY,
+        HOTKEY,
+    }
+
     def __init__(
         self,
         config: SovereignConfig,
@@ -264,6 +272,23 @@ class NativeToolRuntime:
 
     def names(self) -> list[str]:
         return [item["function"]["name"] for item in self.definitions()]
+
+    def visual_action_names(self) -> list[str]:
+        if not self.config.computer_control_enabled:
+            return []
+        enabled = set(self.names())
+        return sorted(self._VISUAL_ACTIONS.intersection(enabled))
+
+    def visual_action_definitions(self) -> list[dict[str, Any]]:
+        allowed = set(self.visual_action_names())
+        return [
+            definition
+            for definition in self.definitions()
+            if definition["function"]["name"] in allowed
+        ]
+
+    async def capture_screen(self) -> dict[str, Any]:
+        return await self.execute(self.SCREENSHOT, {})
 
     async def execute(
         self,

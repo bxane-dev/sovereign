@@ -86,6 +86,7 @@ export function App({api}: {api: SovereignApi}) {
       "system",
       [
         `native: ${tools.native_tools.join(", ") || "(none)"}`,
+        `visual actions: ${tools.visual_action_tools.join(", ") || "(none)"}`,
         `mcp: ${tools.mcp_servers.join(", ") || "(none)"}`,
       ].join("\n"),
     );
@@ -141,6 +142,7 @@ export function App({api}: {api: SovereignApi}) {
             `permission: ${next.permission_mode}`,
             `workspace: ${next.workspace}`,
             `computer control: ${next.computer_control_enabled ? "enabled" : "disabled"}`,
+            `visual autonomy: ${next.visual_autonomy_enabled ? "enabled" : "disabled"}`,
             `filesystem writes: ${next.filesystem_write_enabled ? "enabled" : "disabled"}`,
           ].join("\n"),
         );
@@ -152,10 +154,25 @@ export function App({api}: {api: SovereignApi}) {
         return;
       }
 
-      if (parsed.kind === "prompt") {
-        append("user", parsed.prompt);
+      if (parsed.kind === "prompt" || parsed.kind === "visual") {
         const approvedTools = [...pendingApprovals];
         setPendingApprovals(new Set());
+
+        if (parsed.kind === "visual") {
+          append("user", `[visual] ${parsed.prompt}`);
+          const result = await api.computerRun({
+            prompt: parsed.prompt,
+            approved_tools: approvedTools,
+          });
+          setConnected(true);
+          append(
+            "assistant",
+            `${result.text}\n[backend=${result.backend} frames=${result.frames} tools=${result.tool_calls}]`,
+          );
+          return;
+        }
+
+        append("user", parsed.prompt);
         const result = await api.run({
           prompt: parsed.prompt,
           approved_tools: approvedTools,

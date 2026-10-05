@@ -24,6 +24,9 @@ class SovereignConfig:
     native_tools_enabled: bool = True
     filesystem_write_enabled: bool = False
     computer_control_enabled: bool = False
+    visual_autonomy_enabled: bool = False
+    max_visual_steps: int = 12
+    visual_action_delay_seconds: float = 0.35
     max_native_read_chars: int = 200_000
     max_native_write_chars: int = 1_000_000
     backends: list[BackendSpec] = field(default_factory=list)
@@ -44,6 +47,9 @@ class SovereignConfig:
             native_tools_enabled=bool(data.get("native_tools_enabled", True)),
             filesystem_write_enabled=bool(data.get("filesystem_write_enabled", False)),
             computer_control_enabled=bool(data.get("computer_control_enabled", False)),
+            visual_autonomy_enabled=bool(data.get("visual_autonomy_enabled", False)),
+            max_visual_steps=int(data.get("max_visual_steps", 12)),
+            visual_action_delay_seconds=float(data.get("visual_action_delay_seconds", 0.35)),
             max_native_read_chars=int(data.get("max_native_read_chars", 200_000)),
             max_native_write_chars=int(data.get("max_native_write_chars", 1_000_000)),
             backends=[BackendSpec.from_dict(item) for item in data.get("backends", [])],

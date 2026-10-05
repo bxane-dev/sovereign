@@ -1,136 +1,159 @@
-# Sovereign v7.0
+# Sovereign v7.1
 
-Sovereign is a local-first AI agent controller with a trusted Python execution core and a modern terminal client.
+Sovereign is a local-first AI agent controller with a trusted Python execution core and a Bun/TypeScript terminal client.
 
-## v7.0 terminal architecture
+## v7.1 visual computer autonomy
 
-v7.0 adds a Claude Code-style **application stack** for the terminal experience:
+v7.1 adds a screenshot-driven computer loop:
 
-- **TypeScript** — terminal/client implementation
-- **React** — component model
-- **Ink** — React rendering in the terminal
-- **Yoga** — terminal layout calculations
-- **Bun** — runtime, package management, tests, and development tooling
+1. Sovereign captures a fresh desktop screenshot.
+2. The screenshot is sent to a healthy vision-capable backend.
+3. The model may request exactly **one** desktop action from the allowed visual tools.
+4. Sovereign checks the per-run approval for that exact tool.
+5. The action runs locally.
+6. Sovereign waits briefly for the UI to settle, captures a new screenshot, and reasons again.
+7. The loop stops when the model returns a final answer without a tool call or the frame limit is reached.
 
-This is an architectural/library alignment only. Sovereign does not copy or depend on proprietary Claude Code source.
+This prevents a model from executing a long chain of clicks against an old screenshot.
 
-The trusted execution core remains:
+## Required opt-ins
 
-- Python
-- FastAPI
-- Pydantic
-- asyncio
-- official OpenAI Python SDK
-- MCP
-- permission-gated native filesystem and computer tools
-- pytest
-- optional PyTorch support for local ML work
+Visual autonomy has two independent local gates:
 
-## Architecture
+    {
+      "computer_control_enabled": true,
+      "visual_autonomy_enabled": true
+    }
 
-    apps/terminal (Bun + TypeScript + React + Ink + Yoga)
-                |
-                | HTTP on localhost
-                v
-    FastAPI control plane
-                |
-                v
-    Sovereign agent / Compute Mesh / MCP / native tools
-                |
-        permission + approval gates
-                |
-                v
-    filesystem / screen / mouse / keyboard / model backends
+It also requires at least one configured backend with the `vision` capability.
 
-The terminal UI never bypasses the Python permission layer.
+State-changing computer actions still need explicit per-run approvals, for example:
 
-## Install the core
+    sovereign computer "Open the editor and type hello" \
+      --approve-tool sovereign__mouse_click \
+      --approve-tool sovereign__type_text
 
-    python -m pip install -e ".[dev]"
+No approval is inferred from model output.
 
-For desktop control:
+## Terminal client
 
-    python -m pip install -e ".[desktop]"
+The terminal application uses:
 
-Start the local control plane:
+- TypeScript
+- React
+- Ink
+- Yoga
+- Bun
 
+Start the Python control plane:
+
+    python -m pip install -e ".[desktop,dev]"
     sovereign serve --port 8765
 
-## Install the terminal client
-
-Install Bun, then:
+Start the terminal:
 
     cd apps/terminal
     bun install
     bun run start
 
-The client connects to:
-
-    http://127.0.0.1:8765
-
-Override it with:
-
-    SOVEREIGN_API_URL=http://127.0.0.1:9000 bun run start
-
-## Terminal commands
-
-- `/status` — controller, permissions, workspace, and control status
-- `/tools` — enabled native tools and MCP servers
-- `/approve <tool>` — approve one gated tool for the **next prompt only**
-- `/revoke <tool>` — remove a pending next-run approval
-- `/clear` — clear the visible transcript
-- `/help` — show commands
-- `/quit` — exit
-
-Example:
+Then approve exact actions for the next run and use `/visual`:
 
     /approve sovereign__mouse_click
     /approve sovereign__type_text
-    Open the editor and type hello
+    /visual Open the editor and type hello
 
-Those approvals are sent only with that run and are cleared afterwards.
+Pending approvals are cleared after that run.
 
-## Native tools
+## Visual action tools
 
-Read-only filesystem tools obey Sovereign's path policy.
+The vision loop can choose only from enabled desktop action tools:
 
-Optional write and computer-control tools include:
-
-- `sovereign__write_text`
-- `sovereign__screen_size`
-- `sovereign__screenshot`
 - `sovereign__mouse_move`
 - `sovereign__mouse_click`
 - `sovereign__type_text`
 - `sovereign__press_key`
 - `sovereign__hotkey`
 
-Computer control defaults off. Filesystem writes default off. Mutating/input actions require explicit run approval.
+Screenshots are captured automatically by Sovereign and are not a model-selected action inside the visual loop.
 
-## FastAPI
+## Configuration
 
-Endpoints:
+Example `~/.sovereign/config.json`:
+
+    {
+      "permission_mode": "sandbox",
+      "workspace": "~/.sovereign/workspace",
+      "computer_control_enabled": true,
+      "visual_autonomy_enabled": true,
+      "max_visual_steps": 12,
+      "visual_action_delay_seconds": 0.35,
+      "backends": [
+        {
+          "name": "vision-model",
+          "endpoint": "http://127.0.0.1:11434/v1/chat/completions",
+          "protocol": "openai",
+          "model": "vision-model",
+          "capabilities": ["reasoning", "vision"],
+          "priority": 100
+        }
+      ]
+    }
+
+## API
+
+FastAPI endpoints include:
 
 - `GET /health`
 - `GET /v1/status`
 - `GET /v1/tools`
 - `POST /v1/route`
 - `POST /v1/run`
+- `POST /v1/computer/run`
 - `/docs` for interactive OpenAPI documentation
 
-## Tests
+Example computer request:
 
-Python:
+    {
+      "prompt": "Open settings",
+      "approved_tools": [
+        "sovereign__mouse_click"
+      ],
+      "max_steps": 8
+    }
 
-    python -m pytest
+## Core architecture
 
-Terminal:
+    Bun + TypeScript + React + Ink + Yoga terminal
+                     |
+                     v
+                FastAPI
+                     |
+                     v
+             Sovereign agent
+              /           \
+      Compute Mesh       MCP tools
+              |
+        vision backend
+              |
+      screenshot -> one approved action -> screenshot
+              |
+      local permission + approval gates
+              |
+       screen / mouse / keyboard / filesystem
 
-    cd apps/terminal
-    bun run check
-    bun test
+## Install
 
-GitHub Actions validates Python 3.11–3.13 and the Bun/TypeScript terminal client.
+Core development:
+
+    python -m pip install -e ".[dev]"
+
+Desktop support:
+
+    python -m pip install -e ".[desktop]"
+
+Optional local ML support:
+
+    python -m pip install -e ".[ml]"
 
 ## Permission model
 
@@ -138,6 +161,6 @@ GitHub Actions validates Python 3.11–3.13 and the Bun/TypeScript terminal clie
 - `selected`: workspace plus explicitly selected roots
 - `full`: unrestricted path checks only when `full_access_opt_in=true`
 
-Remote model output and terminal-client input are never treated as permission to bypass local policy or approval gates.
+Computer control defaults off. Visual autonomy defaults off. Filesystem writes default off. Remote model output and terminal input never bypass these local gates.
 
-Current version: 7.0.0.
+Current version: 7.1.0.

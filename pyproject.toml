@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sovereign-agent"
-version = "7.0.0"
-description = "Local-first AI agent orchestration with FastAPI, Pydantic, async backend execution, MCP tools, permission-gated computer access, and a Bun/Ink terminal client."
+version = "7.1.0"
+description = "Local-first AI agent orchestration with FastAPI, MCP, permission-gated computer control, visual autonomy, and a Bun/Ink terminal client."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "bxane", email = "bxane-dev@users.noreply.github.com"}]
 license = {text = "MIT"}
-keywords = ["ai", "agent", "mcp", "fastapi", "pydantic", "ink", "bun", "local-first", "orchestration"]
+keywords = ["ai", "agent", "mcp", "fastapi", "vision", "computer-use", "ink", "bun", "local-first"]
 dependencies = [
   "fastapi>=0.115",
   "pydantic>=2.9",

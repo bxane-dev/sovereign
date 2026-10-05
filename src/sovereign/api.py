@@ -42,6 +42,19 @@ class RunResponse(BaseModel):
     tool_calls: int
 
 
+class ComputerRunRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+    max_steps: int | None = Field(default=None, ge=1)
+    approved_tools: list[str] = Field(default_factory=list)
+
+
+class ComputerRunResponse(BaseModel):
+    text: str
+    backend: str
+    frames: int
+    tool_calls: int
+
+
 def create_app(agent: SovereignAgent) -> FastAPI:
     app = FastAPI(
         title="Sovereign",
@@ -61,6 +74,7 @@ def create_app(agent: SovereignAgent) -> FastAPI:
     async def tools() -> dict[str, object]:
         return {
             "native_tools": agent.native_tools.names(),
+            "visual_action_tools": agent.native_tools.visual_action_names(),
             "mcp_servers": agent.mcp.names(),
         }
 
@@ -99,6 +113,23 @@ def create_app(agent: SovereignAgent) -> FastAPI:
                 backend=result.backend,
                 capability=result.capability,
                 steps=result.steps,
+                tool_calls=result.tool_calls,
+            )
+        except (ValueError, RuntimeError, PermissionError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/v1/computer/run", response_model=ComputerRunResponse)
+    async def computer_run(request: ComputerRunRequest) -> ComputerRunResponse:
+        try:
+            result = await agent.run_visual(
+                request.prompt,
+                request.approved_tools,
+                request.max_steps,
+            )
+            return ComputerRunResponse(
+                text=result.text,
+                backend=result.backend,
+                frames=result.frames,
                 tool_calls=result.tool_calls,
             )
         except (ValueError, RuntimeError, PermissionError) as exc:

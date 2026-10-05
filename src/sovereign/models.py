@@ -119,3 +119,11 @@ class RunResult:
     capability: Capability
     steps: int
     tool_calls: int
+
+
+@dataclass(frozen=True, slots=True)
+class VisualRunResult:
+    text: str
+    backend: str
+    frames: int
+    tool_calls: int

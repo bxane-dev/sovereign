@@ -13,7 +13,14 @@ from .backend import BackendExecutionError, BackendExecutor
 from .config import SovereignConfig
 from .mcp import MCPHub
 from .mesh import ComputeMesh, NoBackendAvailable
-from .models import Attachment, BackendReply, BackendSpec, Capability, RunResult
+from .models import (
+    Attachment,
+    BackendReply,
+    BackendSpec,
+    Capability,
+    RunResult,
+    VisualRunResult,
+)
 from .native_tools import NativeToolRuntime
 from .permissions import PermissionPolicy
 
@@ -110,6 +117,24 @@ class SovereignAgent:
             raise BackendExecutionError("all candidate backends failed: " + " | ".join(failures))
         raise NoBackendAvailable(f"no healthy backend provides {capability.value}")
 
+    @staticmethod
+    def _assistant_tool_message(reply: BackendReply) -> dict[str, Any]:
+        return {
+            "role": "assistant",
+            "content": reply.text or None,
+            "tool_calls": [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {
+                        "name": call.name,
+                        "arguments": json.dumps(call.arguments, separators=(",", ":")),
+                    },
+                }
+                for call in reply.tool_calls
+            ],
+        }
+
     async def run(
         self,
         prompt: str,
@@ -155,25 +180,7 @@ class SovereignAgent:
                         tool_calls=total_tool_calls,
                     )
 
-                assistant_tool_calls = []
-                for call in reply.tool_calls:
-                    assistant_tool_calls.append(
-                        {
-                            "id": call.id,
-                            "type": "function",
-                            "function": {
-                                "name": call.name,
-                                "arguments": json.dumps(call.arguments, separators=(",", ":")),
-                            },
-                        }
-                    )
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": reply.text or None,
-                        "tool_calls": assistant_tool_calls,
-                    }
-                )
+                messages.append(self._assistant_tool_message(reply))
 
                 for call in reply.tool_calls:
                     if call.name in native_names:
@@ -207,6 +214,122 @@ class SovereignAgent:
             if clients:
                 await asyncio.gather(*(client.close() for client in clients.values()), return_exceptions=True)
 
+    async def run_visual(
+        self,
+        prompt: str,
+        approved_tools: Iterable[str] = (),
+        max_steps: int | None = None,
+    ) -> VisualRunResult:
+        if not prompt.strip():
+            raise ValueError("prompt cannot be empty")
+        if not self.config.computer_control_enabled:
+            raise PermissionError("computer control is disabled")
+        if not self.config.visual_autonomy_enabled:
+            raise PermissionError("visual autonomy is disabled")
+        if not self.mesh.candidates(Capability.VISION):
+            raise NoBackendAvailable("visual autonomy requires a healthy vision backend")
+
+        action_tools = self.native_tools.visual_action_definitions()
+        action_names = set(self.native_tools.visual_action_names())
+        if not action_tools or not action_names:
+            raise ToolExecutionError("no visual computer action tools are enabled")
+
+        step_limit = max_steps if max_steps is not None else self.config.max_visual_steps
+        if step_limit < 1:
+            raise ValueError("max_steps must be at least 1")
+
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "system",
+                "content": (
+                    "You are operating a desktop through Sovereign. "
+                    "Use at most one supplied computer action tool per turn. "
+                    "After each action Sovereign will capture and send a fresh screenshot. "
+                    "Choose coordinates only from the current screenshot. "
+                    "When the task is complete, reply with the final result and make no tool call. "
+                    "Never claim an action succeeded until its tool result confirms it."
+                ),
+            }
+        ]
+
+        approvals = tuple(approved_tools)
+        total_tool_calls = 0
+        last_backend = ""
+
+        for frame in range(1, step_limit + 1):
+            screenshot = await self.native_tools.capture_screen()
+            screenshot_path = screenshot.get("path")
+            if not screenshot_path:
+                raise ToolExecutionError("screen capture did not return a path")
+            attachment = self.attachments.inspect(str(screenshot_path))
+            if not attachment.media_type.startswith("image/"):
+                raise ToolExecutionError("screen capture is not an image")
+
+            screen_prompt = (
+                f"Task: {prompt}\n"
+                f"Current screen frame: {frame}. "
+                f"Resolution: {screenshot.get('width', '?')}x{screenshot.get('height', '?')}. "
+                "Inspect this fresh screenshot. If the task is complete, answer without a tool call. "
+                "Otherwise choose exactly one approved desktop action."
+            )
+            messages.append(
+                {
+                    "role": "user",
+                    "content": self._user_content(screen_prompt, (attachment,)),
+                }
+            )
+
+            reply, backend = await self._complete_with_failover(
+                Capability.VISION,
+                messages,
+                action_tools,
+            )
+            last_backend = backend.name
+
+            if not reply.tool_calls:
+                return VisualRunResult(
+                    text=reply.text,
+                    backend=backend.name,
+                    frames=frame,
+                    tool_calls=total_tool_calls,
+                )
+
+            if len(reply.tool_calls) != 1:
+                raise ToolExecutionError(
+                    "visual autonomy allows exactly one desktop action per screenshot"
+                )
+
+            call = reply.tool_calls[0]
+            if call.name not in action_names:
+                raise ToolExecutionError(
+                    f"vision backend requested non-visual or unauthorized tool: {call.name}"
+                )
+
+            messages.append(self._assistant_tool_message(reply))
+            result = await self.native_tools.execute(
+                call.name,
+                call.arguments,
+                approvals,
+            )
+            total_tool_calls += 1
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "name": call.name,
+                    "content": json.dumps(result, separators=(",", ":"), ensure_ascii=False),
+                }
+            )
+
+            delay = max(float(self.config.visual_action_delay_seconds), 0.0)
+            if delay:
+                await asyncio.sleep(delay)
+
+        raise AgentStepLimit(
+            f"visual agent reached the {step_limit}-frame limit after "
+            f"{total_tool_calls} actions; last backend={last_backend}"
+        )
+
     def status(self) -> dict[str, object]:
         return {
             "version": __version__,
@@ -217,5 +340,6 @@ class SovereignAgent:
             "mcp_servers": self.mcp.names(),
             "native_tools": self.native_tools.names(),
             "computer_control_enabled": self.config.computer_control_enabled,
+            "visual_autonomy_enabled": self.config.visual_autonomy_enabled,
             "filesystem_write_enabled": self.config.filesystem_write_enabled,
         }

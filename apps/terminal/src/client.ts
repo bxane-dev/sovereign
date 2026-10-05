@@ -1,4 +1,6 @@
 import type {
+  ComputerRunRequest,
+  ComputerRunResponse,
   RunRequest,
   RunResponse,
   SovereignStatus,
@@ -64,6 +66,13 @@ export class SovereignApi {
 
   run(payload: RunRequest): Promise<RunResponse> {
     return this.request("/v1/run", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  computerRun(payload: ComputerRunRequest): Promise<ComputerRunResponse> {
+    return this.request("/v1/computer/run", {
       method: "POST",
       body: JSON.stringify(payload),
     });
