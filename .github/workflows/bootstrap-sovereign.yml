@@ -1,0 +1,40 @@
+name: Bootstrap Sovereign Source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".sovereign-bootstrap/READY"
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reassemble verified source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .sovereign-bootstrap/chunk-*.b64 > /tmp/sovereign.tar.gz.b64
+          base64 --decode /tmp/sovereign.tar.gz.b64 > /tmp/sovereign.tar.gz
+          mkdir -p /tmp/sovereign-src
+          tar -xzf /tmp/sovereign.tar.gz -C /tmp/sovereign-src
+          test -f /tmp/sovereign-src/sovereign/pyproject.toml
+          rsync -a --delete --exclude='.git/' /tmp/sovereign-src/sovereign/ ./
+      - name: Commit verified v6.6 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "bxane"
+          git config user.email "bxane@proton.me"
+          git add -A
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Release Sovereign v6.6.0"
+          git push origin HEAD:main
