@@ -20,6 +20,7 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="check local runtime and config")
     sub.add_parser("status", help="print controller status")
+    sub.add_parser("tools", help="list enabled native tools and MCP servers")
     route = sub.add_parser("route", help="show which backend would receive a capability")
     route.add_argument("capability", choices=[cap.value for cap in Capability])
     run = sub.add_parser("run", help="execute a prompt through Sovereign")
@@ -27,6 +28,12 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--capability", choices=[cap.value for cap in Capability], default="reasoning")
     run.add_argument("--attach", action="append", default=[], type=Path)
     run.add_argument("--max-steps", type=int)
+    run.add_argument(
+        "--approve-tool",
+        action="append",
+        default=[],
+        help="approve one gated native tool for this run; may be repeated",
+    )
     server = sub.add_parser("serve", help="run the local HTTP API")
     server.add_argument("--host", default="127.0.0.1")
     server.add_argument("--port", type=int, default=8765)
@@ -47,11 +54,25 @@ def main(argv: list[str] | None = None) -> int:
             "permission_mode": config.permission_mode.value,
             "backends": len(config.backends),
             "mcp_servers": len(config.mcp_servers),
+            "native_tools": agent.native_tools.names(),
+            "computer_control_enabled": config.computer_control_enabled,
+            "filesystem_write_enabled": config.filesystem_write_enabled,
         }
         print(json.dumps(report, indent=2))
         return 0
     if args.command == "status":
         print(json.dumps(agent.status(), indent=2))
+        return 0
+    if args.command == "tools":
+        print(
+            json.dumps(
+                {
+                    "native_tools": agent.native_tools.names(),
+                    "mcp_servers": agent.mcp.names(),
+                },
+                indent=2,
+            )
+        )
         return 0
     if args.command == "route":
         decision = agent.plan_route(Capability(args.capability))
@@ -64,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
                 Capability(args.capability),
                 args.attach,
                 args.max_steps,
+                args.approve_tool,
             )
         )
         print(result.text)

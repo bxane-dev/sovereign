@@ -11,7 +11,7 @@ class FakeExecutor:
         return BackendReply(text="api answer")
 
 
-def test_api_health_status_route_and_run():
+def test_api_health_status_route_run_and_tools():
     cfg = SovereignConfig(
         backends=[BackendSpec("local", "http://local", frozenset({Capability.REASONING}), priority=1)]
     )
@@ -21,11 +21,18 @@ def test_api_health_status_route_and_run():
     assert health.status_code == 200
     assert health.json()["ok"] is True
 
+    tools = client.get("/v1/tools")
+    assert tools.status_code == 200
+    assert "sovereign__read_text" in tools.json()["native_tools"]
+
     route = client.post("/v1/route", json={"capability": "reasoning"})
     assert route.status_code == 200
     assert route.json() == {"capability": "reasoning", "backend": "local", "attachments": []}
 
-    run = client.post("/v1/run", json={"prompt": "hello"})
+    run = client.post(
+        "/v1/run",
+        json={"prompt": "hello", "approved_tools": ["sovereign__write_text"]},
+    )
     assert run.status_code == 200
     assert run.json()["text"] == "api answer"
     assert run.json()["backend"] == "local"

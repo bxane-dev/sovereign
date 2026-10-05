@@ -1,36 +1,69 @@
-# Sovereign v6.8
+# Sovereign v6.9
 
-Sovereign is a local-first AI agent controller. v6.8 moves the control-plane architecture onto FastAPI, Pydantic, asyncio, and the official OpenAI Python SDK while preserving Sovereign's permission system, compute mesh, and MCP tool loop.
+Sovereign is a local-first AI agent controller. v6.9 adds a permission-gated native computer/tool runtime on top of the FastAPI, Pydantic, asyncio, OpenAI SDK, and MCP architecture.
 
-## v6.8 stack alignment
+## v6.9 computer runtime
 
-- Python remains the primary orchestration language.
-- FastAPI provides the local HTTP/API control plane and OpenAPI schema.
-- Pydantic validates request and response structures.
-- asyncio drives backend calls and autonomous MCP tool execution.
-- The official OpenAI Python SDK handles OpenAI-compatible chat-completions backends asynchronously.
-- pytest remains the automated test framework.
-- PyTorch is available as the optional `ml` extra for future local model/runtime components instead of being forced onto lightweight controller installs.
+Sovereign now has native tools for:
+
+- reading text files inside permitted filesystem roots
+- listing directories inside permitted filesystem roots
+- optionally writing text files
+- screen-size inspection
+- screenshots
+- mouse movement and clicks
+- keyboard typing, key presses, and hotkeys
+
+The safety boundary is local and enforced before actions run:
+
+- filesystem reads remain restricted by Sovereign's existing sandbox / selected-root / full-access policy
+- filesystem writes are hidden unless `filesystem_write_enabled=true`
+- writes still require explicit per-run approval
+- desktop tools are hidden unless `computer_control_enabled=true`
+- mouse and keyboard actions require explicit per-run approval
+- screenshots are only exposed after computer control has been explicitly enabled
+- PyAutoGUI's fail-safe remains enabled
+
+## Core stack
+
+- Python
+- FastAPI
+- Pydantic
+- asyncio
+- official OpenAI Python SDK
+- MCP stdio tools
+- pytest
+- optional PyTorch local-ML extra
+
+Desktop control adds optional PyAutoGUI, MSS, and Pillow dependencies.
 
 ## Install
 
-    python -m pip install -e .
-    sovereign doctor
+Core:
 
-Development install:
+    python -m pip install -e .
+
+Development:
 
     python -m pip install -e ".[dev]"
+
+Desktop control:
+
+    python -m pip install -e ".[desktop]"
 
 Optional local ML runtime:
 
     python -m pip install -e ".[ml]"
 
-## Configure
+## Configuration
 
 Example `~/.sovereign/config.json`:
 
     {
       "permission_mode": "sandbox",
+      "workspace": "~/.sovereign/workspace",
+      "filesystem_write_enabled": true,
+      "computer_control_enabled": true,
       "backends": [
         {
           "name": "local-model",
@@ -40,38 +73,54 @@ Example `~/.sovereign/config.json`:
           "capabilities": ["reasoning", "vision"],
           "priority": 100
         }
-      ],
-      "mcp_servers": [
-        {
-          "name": "local-tools",
-          "command": ["python", "my_mcp_server.py"]
-        }
       ]
     }
 
-Headers can reference environment variables, for example `"Authorization": "env:SOVEREIGN_API_KEY"`.
+Computer control remains disabled unless explicitly enabled.
 
 ## Run
 
-    sovereign status
-    sovereign route reasoning
-    sovereign run "Inspect the project and summarize the failing tests"
+List enabled tools:
+
+    sovereign tools
+
+Read-only tool use requires no special run flag because path policy still applies.
+
+Approve a write for one run:
+
+    sovereign run "Create notes.txt in my workspace" \
+      --approve-tool sovereign__write_text
+
+Approve mouse and keyboard actions for one run:
+
+    sovereign run "Open the app and type hello" \
+      --approve-tool sovereign__mouse_move \
+      --approve-tool sovereign__mouse_click \
+      --approve-tool sovereign__type_text
+
+Approvals are exact tool names and apply only to that run.
+
+## FastAPI
+
     sovereign serve --port 8765
 
-FastAPI exposes:
+Endpoints:
 
 - `GET /health`
 - `GET /v1/status`
+- `GET /v1/tools`
 - `POST /v1/route`
 - `POST /v1/run`
 - interactive OpenAPI docs at `/docs`
 
+`POST /v1/run` accepts an `approved_tools` array for gated native actions.
+
 ## Permission model
 
-- `sandbox`: Sovereign workspace only.
-- `selected`: workspace plus explicitly selected roots.
-- `full`: unrestricted path checks only when `full_access_opt_in=true`.
+- `sandbox`: Sovereign workspace only
+- `selected`: workspace plus explicitly selected roots
+- `full`: unrestricted path checks only when `full_access_opt_in=true`
 
-Remote model output is never treated as permission to bypass the local policy.
+Remote model output is never permission to bypass local policy or approval gates.
 
-Current version: 6.8.0.
+Current version: 6.9.0.

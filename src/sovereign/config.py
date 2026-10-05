@@ -21,6 +21,11 @@ class SovereignConfig:
     max_attachment_bytes: int = 128 * 1024 * 1024
     max_inline_image_bytes: int = 8 * 1024 * 1024
     max_agent_steps: int = 8
+    native_tools_enabled: bool = True
+    filesystem_write_enabled: bool = False
+    computer_control_enabled: bool = False
+    max_native_read_chars: int = 200_000
+    max_native_write_chars: int = 1_000_000
     backends: list[BackendSpec] = field(default_factory=list)
     mcp_servers: list[MCPServerSpec] = field(default_factory=list)
 
@@ -36,6 +41,11 @@ class SovereignConfig:
             max_attachment_bytes=int(data.get("max_attachment_bytes", 128 * 1024 * 1024)),
             max_inline_image_bytes=int(data.get("max_inline_image_bytes", 8 * 1024 * 1024)),
             max_agent_steps=int(data.get("max_agent_steps", 8)),
+            native_tools_enabled=bool(data.get("native_tools_enabled", True)),
+            filesystem_write_enabled=bool(data.get("filesystem_write_enabled", False)),
+            computer_control_enabled=bool(data.get("computer_control_enabled", False)),
+            max_native_read_chars=int(data.get("max_native_read_chars", 200_000)),
+            max_native_write_chars=int(data.get("max_native_write_chars", 1_000_000)),
             backends=[BackendSpec.from_dict(item) for item in data.get("backends", [])],
             mcp_servers=[MCPServerSpec.from_dict(item) for item in data.get("mcp_servers", [])],
         )

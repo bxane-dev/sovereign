@@ -1,3 +1,3 @@
 """Sovereign local-first agent controller."""
 
-__version__ = "6.8.0"
+__version__ = "6.9.0"

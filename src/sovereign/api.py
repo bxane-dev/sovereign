@@ -31,6 +31,7 @@ class RunRequest(BaseModel):
     capability: Capability = Capability.REASONING
     attachments: list[str] = Field(default_factory=list)
     max_steps: int | None = Field(default=None, ge=1)
+    approved_tools: list[str] = Field(default_factory=list)
 
 
 class RunResponse(BaseModel):
@@ -55,6 +56,13 @@ def create_app(agent: SovereignAgent) -> FastAPI:
     @app.get("/v1/status")
     async def status() -> dict[str, object]:
         return agent.status()
+
+    @app.get("/v1/tools")
+    async def tools() -> dict[str, object]:
+        return {
+            "native_tools": agent.native_tools.names(),
+            "mcp_servers": agent.mcp.names(),
+        }
 
     @app.post("/v1/route", response_model=RouteResponse)
     async def route(request: RouteRequest) -> RouteResponse:
@@ -84,6 +92,7 @@ def create_app(agent: SovereignAgent) -> FastAPI:
                 request.capability,
                 request.attachments,
                 request.max_steps,
+                request.approved_tools,
             )
             return RunResponse(
                 text=result.text,
