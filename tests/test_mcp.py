@@ -23,7 +23,7 @@ for line in sys.stdin:
         result = {'content': [{'type': 'text', 'text': req['params']['arguments'].get('text', '')}]}
     else:
         result = {}
-    sys.stdout.write(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}) + '\n')
+    sys.stdout.write(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}) + '\\n')
     sys.stdout.flush()
 """.strip(),
         encoding="utf-8",
