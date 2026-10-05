@@ -50,7 +50,7 @@ class BackendSpec:
         if not isinstance(options, dict):
             raise ValueError("backend options must be an object")
         protocol = str(data.get("protocol", "openai")).strip().lower()
-        if protocol not in {"openai", "sovereign"}:
+        if protocol not in {"openai", "sovereign", "ollama", "anthropic"}:
             raise ValueError(f"unsupported backend protocol: {protocol}")
         model_value = data.get("model")
         return cls(

@@ -58,13 +58,29 @@ def test_agent_executes_tool_and_returns_final_answer():
     )
     agent = SovereignAgent(cfg, executor=executor)
     agent.mcp = FakeHub(client)
-    result = asyncio.run(agent.run("use the tool"))
+    result = asyncio.run(agent.run("use the tool", approved_tools=["srv__echo"]))
     assert result.text == "tool result received"
     assert result.steps == 2
     assert result.tool_calls == 1
     assert client.calls == [("echo", {"text": "hello"})]
     assert client.closed is True
     assert executor.messages[1][-1]["role"] == "tool"
+
+
+def test_mcp_tool_requires_per_run_approval():
+    executor = FakeExecutor()
+    client = FakeClient()
+    cfg = SovereignConfig(
+        backends=[BackendSpec("model", "http://unused", frozenset({Capability.REASONING}))]
+    )
+    agent = SovereignAgent(cfg, executor=executor)
+    agent.mcp = FakeHub(client)
+    import pytest
+    from sovereign.agent import ToolExecutionError
+
+    with pytest.raises(ToolExecutionError, match="unknown or unauthorized"):
+        asyncio.run(agent.run("use the tool"))
+    assert client.calls == []
 
 
 class FailingExecutor:

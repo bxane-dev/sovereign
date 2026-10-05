@@ -1,6 +1,44 @@
-# Sovereign v7.1
+# Sovereign v8.0
 
-Sovereign is a local-first AI agent controller with a trusted Python execution core and a Bun/TypeScript terminal client.
+Sovereign is a local-first AI agent controller with a Python execution core, a Bun/TypeScript terminal client, and an Electron desktop shell for Windows, macOS, and Linux.
+
+## Desktop app
+
+The desktop shell starts its bundled Python core on a random loopback port with a per-launch bearer token. Its isolated renderer accesses only selected core endpoints through Electron IPC. The app offers persistent reasoning conversations, per-run action approvals, desktop vision tasks, and update checks against GitHub Releases.
+
+Use **Plugins** in the left sidebar to see configured MCP servers. MCP servers are added under `mcp_servers` in the local config file shown on that page, then loaded after restarting the app. There is no in-app plugin store yet. Chat also requires at least one healthy backend with the `reasoning` capability; new installs start with no backend configured.
+
+Development run:
+
+    python -m pip install -e ".[desktop,dev]"
+    pnpm install --frozen-lockfile
+    pnpm --filter @sovereign/desktop run start
+
+Build an installer for the current operating system:
+
+    python -m pip install -e ".[desktop,build]"
+    python scripts/build_core.py
+    python scripts/smoke_core.py
+    python scripts/build_terminal.py
+    pnpm --filter @sovereign/desktop run dist
+
+Release builds use the locked `uv.lock` and `pnpm-lock.yaml` dependency graphs. See [docs/RELEASE.md](docs/RELEASE.md) for signing, notarization, and release steps.
+
+## Persistent sessions
+
+Reasoning conversations are checkpointed in `workspace/sessions.sqlite3`. Create a session with `sovereign session new` or `POST /v1/sessions`, then pass its ID to `sovereign run --session ID` or the `/v1/run` API. Use `sovereign session list`, `show`, and `resume` to inspect or continue work. If the process stops after requesting a tool but before recording its result, resumption reports an unknown outcome to the model and does not replay the action. Delete a session with `DELETE /v1/sessions/{id}`.
+
+## Backends
+
+Configured backends may use `openai` (OpenAI-compatible chat completions), `ollama` (native `/api/chat`), `anthropic` (Messages API), or `sovereign` protocol. Declare the capabilities a model actually supports; visual autonomy requires `vision` and tool calling. API keys should be referenced through `env:` header values or `ANTHROPIC_API_KEY`, and are never written into the config file.
+
+Example local Ollama backend:
+
+    {"name":"ollama","endpoint":"http://127.0.0.1:11434/api/chat","protocol":"ollama","model":"your-vision-model","capabilities":["reasoning","vision"]}
+
+Example Anthropic backend:
+
+    {"name":"claude","endpoint":"https://api.anthropic.com/v1/messages","protocol":"anthropic","model":"your-model","capabilities":["reasoning","vision"],"headers":{"x-api-key":"env:ANTHROPIC_API_KEY"}}
 
 ## v7.1 visual computer autonomy
 
@@ -55,9 +93,8 @@ Start the Python control plane:
 
 Start the terminal:
 
-    cd apps/terminal
-    bun install
-    bun run start
+    pnpm install --frozen-lockfile
+    pnpm --filter @sovereign/terminal run start
 
 Then approve exact actions for the next run and use `/visual`:
 
@@ -116,6 +153,8 @@ FastAPI endpoints include:
 - `POST /v1/route`
 - `POST /v1/run`
 - `POST /v1/computer/run`
+- `POST /v1/sessions`, `GET /v1/sessions`, `GET /v1/sessions/{id}`
+- `POST /v1/sessions/{id}/resume`, `DELETE /v1/sessions/{id}`
 - `/docs` for interactive OpenAPI documentation
 
 Example computer request:
@@ -169,9 +208,12 @@ Optional local ML support:
 - `full`: unrestricted path checks only when `full_access_opt_in=true`
 
 Computer control defaults off. Visual autonomy defaults off. Filesystem writes default off. Remote model output and terminal input never bypass these local gates.
+Configured MCP tools also require exact per-run approval before Sovereign exposes or executes them. Binding the API beyond loopback requires `SOVEREIGN_API_TOKEN`.
 
 ## Verification
 
 Run `python -m pytest` for the control plane and visual loop tests. CI runs the Python tests on Linux, Windows, and macOS, and runs the Bun terminal type check and tests on Linux. The visual tests use a simulated desktop and backend; a live vision backend and desktop integration still require a manual smoke run in the target environment.
 
-Current version: 7.1.0.
+When `SOVEREIGN_API_TOKEN` is set, every API route requires `Authorization: Bearer <token>`. The packaged desktop app sets a fresh token for its own core process.
+
+Current version: 8.0.0.

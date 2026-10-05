@@ -38,7 +38,19 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--capability", choices=[cap.value for cap in Capability], default="reasoning")
     run.add_argument("--attach", action="append", default=[], type=Path)
     run.add_argument("--max-steps", type=int)
+    run.add_argument("--session", help="continue a persistent session by ID")
     _add_approval_args(run)
+
+    session = sub.add_parser("session", help="manage persistent agent sessions")
+    session_sub = session.add_subparsers(dest="session_command", required=True)
+    session_sub.add_parser("new", help="create a reasoning session")
+    session_sub.add_parser("list", help="list recent sessions")
+    show = session_sub.add_parser("show", help="show a session and its messages")
+    show.add_argument("id")
+    resume = session_sub.add_parser("resume", help="resume an interrupted task")
+    resume.add_argument("id")
+    resume.add_argument("--max-steps", type=int)
+    _add_approval_args(resume)
 
     computer = sub.add_parser(
         "computer",
@@ -102,9 +114,25 @@ def main(argv: list[str] | None = None) -> int:
                 args.attach,
                 args.max_steps,
                 args.approve_tool,
+                args.session,
             )
         )
         print(result.text)
+        return 0
+    if args.command == "session":
+        if args.session_command == "new":
+            print(json.dumps(agent.sessions.create().summary(), indent=2))
+        elif args.session_command == "list":
+            print(json.dumps([item.summary() for item in agent.sessions.list()], indent=2))
+        elif args.session_command == "show":
+            item = agent.sessions.get(args.id)
+            print(json.dumps({**item.summary(), "messages": item.messages}, indent=2))
+        elif args.session_command == "resume":
+            result = asyncio.run(agent.run(
+                "", max_steps=args.max_steps, approved_tools=args.approve_tool,
+                session_id=args.id, resume=True,
+            ))
+            print(result.text)
         return 0
     if args.command == "computer":
         result = asyncio.run(

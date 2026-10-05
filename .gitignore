@@ -11,6 +11,13 @@ build/
 node_modules/
 .bun/
 *.tsbuildinfo
+apps/desktop/resources/core/*
+apps/desktop/resources/terminal/*
+!apps/desktop/resources/core/.gitkeep
+!apps/desktop/resources/terminal/.gitkeep
+apps/desktop/dist/
+pnpm-debug.log
+work/
 .env
 .sovereign/
 *.pem

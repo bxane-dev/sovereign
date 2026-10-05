@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <title>Sovereign</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">S</span><strong>Sovereign</strong></div>
+      <button id="new-session" class="new-chat"><span aria-hidden="true">＋</span> New chat</button>
+      <nav class="nav" aria-label="Workspace">
+        <span class="nav-label">Workspace</span>
+        <button id="chats-button" class="nav-item selected" type="button"><span class="nav-icon" aria-hidden="true">▤</span> Chats</button>
+        <button id="plugins-button" class="nav-item" type="button"><span class="nav-icon" aria-hidden="true">⌘</span> Plugins</button>
+      </nav>
+      <div class="recent-heading">Recents</div>
+      <div id="sessions" class="session-list"></div>
+      <div class="sidebar-bottom">
+        <div class="connection-row"><span id="connection" class="status">Connecting</span><button id="refresh" class="icon-button" title="Refresh status" aria-label="Refresh status">↻</button></div>
+        <div class="profile-row"><span class="profile-mark">S</span><span><strong>Local workspace</strong><small>On this device</small></span><button id="theme-toggle" class="theme-toggle" type="button" title="Switch to light theme" aria-label="Switch to light theme">☼</button></div>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div><h1 id="title">Sovereign</h1><p id="subtitle">Private AI workspace</p></div>
+        <span id="version" class="badge"></span>
+      </header>
+      <section id="conversation-view" class="view">
+        <div id="messages" class="messages" role="log" aria-live="polite"></div>
+        <form id="composer" class="composer">
+          <label class="sr-only" for="prompt">Message Sovereign</label>
+          <textarea id="prompt" rows="2" placeholder="Message Sovereign" required></textarea>
+          <div id="approvals" class="approvals"></div>
+          <details class="approval-details"><summary>Approve a plugin tool for this run</summary><input id="extra-approval" class="extra-approval" type="text" placeholder="Enter the exact tool name" aria-label="Exact plugin tool approval"></details>
+          <div class="composer-toolbar">
+            <div class="toolbar-left">
+              <label class="vision-toggle"><input id="visual" type="checkbox"><span>Use desktop vision</span></label>
+              <span id="mode-note" class="mode-note">Reasoning conversation</span>
+            </div>
+            <div class="toolbar-right"><span id="feedback" role="status"></span><button type="button" id="resume" class="resume-button" hidden>Resume task</button><button id="send" class="send-button" type="submit" aria-label="Send message">↑</button></div>
+          </div>
+          <div class="desktop-control-row"><span id="vision-help" class="mode-note"></span><button type="button" id="control-toggle" class="control-toggle" hidden>Enable desktop control</button></div>
+        </form>
+        <p class="privacy-note">Sovereign runs locally and uses the model backend you configure.</p>
+      </section>
+      <section id="plugins-view" class="plugins-view" hidden>
+        <div class="plugins-content">
+          <div class="plugins-heading"><span class="plugins-icon" aria-hidden="true">⌘</span><div><h2>Plugins</h2><p>Connect local tools to your conversations.</p></div></div>
+          <div id="plugin-list" class="plugin-list"></div>
+          <div class="setup-card">
+            <strong>Set up plugins</strong>
+            <p>Add MCP servers to the config file below, then restart Sovereign. Each plugin tool requires your approval before a model can use it.</p>
+            <code id="config-path" class="config-path"></code>
+            <pre>{
+  "mcp_servers": [
+    { "name": "my-plugin", "command": ["program", "arg"], "enabled": true }
+  ]
+}</pre>
+            <p class="subtle">This preview supports local MCP servers. OAuth based website connections and a built-in plugin catalog are not available yet.</p>
+          </div>
+        </div>
+      </section>
+      <div id="update" class="update" hidden><span id="update-text"></span><button id="install-update" class="small">Install update</button></div>
+    </main>
+  </div>
+</body>
+</html>

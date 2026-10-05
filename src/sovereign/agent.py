@@ -10,7 +10,7 @@ from typing import Any, Iterable
 from . import __version__
 from .attachments import AttachmentError, AttachmentInspector
 from .backend import BackendExecutionError, BackendExecutor
-from .config import SovereignConfig
+from .config import DEFAULT_CONFIG, SovereignConfig
 from .mcp import MCPHub
 from .mesh import ComputeMesh, NoBackendAvailable
 from .models import (
@@ -23,6 +23,7 @@ from .models import (
 )
 from .native_tools import NativeToolError, NativeToolRuntime
 from .permissions import PermissionPolicy
+from .sessions import SessionError, SessionStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +57,7 @@ class SovereignAgent:
         self.mcp = MCPHub(config.mcp_servers)
         self.executor = executor or BackendExecutor()
         self.native_tools = native_tools or NativeToolRuntime(config, self.policy)
+        self.sessions = SessionStore(config.workspace.expanduser() / "sessions.sqlite3")
 
     def plan_route(
         self,
@@ -109,7 +111,6 @@ class SovereignAgent:
             try:
                 reply = await self.executor.complete(backend, messages, tools, capability)
             except BackendExecutionError as exc:
-                self.mesh.set_health(backend.name, False)
                 failures.append(str(exc))
                 continue
             return reply, backend
@@ -142,20 +143,46 @@ class SovereignAgent:
         attachment_paths: Iterable[Path | str] = (),
         max_steps: int | None = None,
         approved_tools: Iterable[str] = (),
+        session_id: str | None = None,
+        resume: bool = False,
     ) -> RunResult:
-        if not prompt.strip():
+        if not prompt.strip() and not resume:
             raise ValueError("prompt cannot be empty")
+        if resume and not session_id:
+            raise ValueError("resume requires a session ID")
         step_limit = max_steps if max_steps is not None else self.config.max_agent_steps
         if step_limit < 1:
             raise ValueError("max_steps must be at least 1")
-        decision = self.plan_route(capability, attachment_paths)
-        messages: list[dict[str, Any]] = [
-            {"role": "user", "content": self._user_content(prompt, decision.attachments)}
-        ]
+        if session_id:
+            session = self.sessions.get(session_id)
+            if session.status == "running":
+                raise SessionError("session is already running")
+            if resume:
+                if session.status != "interrupted":
+                    raise SessionError("only an interrupted session can be resumed")
+                capability = session.capability
+                messages = session.messages
+                self._close_uncertain_tool_calls(messages)
+            else:
+                if session.capability is not capability:
+                    raise SessionError("session capability does not match request")
+                if session.status == "interrupted":
+                    raise SessionError("resume the interrupted task before starting another turn")
+                messages = session.messages
+        else:
+            messages = []
+        decision = self.plan_route(capability, () if resume else attachment_paths)
+        if not resume:
+            messages.append(
+                {"role": "user", "content": self._user_content(prompt, decision.attachments)}
+            )
+        if session_id:
+            self.sessions.checkpoint(session_id, messages, "running")
         clients: dict[str, Any] = {}
         mcp_registry: dict[str, tuple[str, str]] = {}
         native_names = set(self.native_tools.names())
         tools: list[dict[str, Any]] = list(self.native_tools.definitions())
+        approvals = frozenset(approved_tools)
         total_tool_calls = 0
         last_backend = decision.backend.name
         try:
@@ -166,12 +193,18 @@ class SovereignAgent:
                     raise ToolExecutionError(
                         "tool name collision: " + ", ".join(sorted(collision))
                     )
-                tools.extend(mcp_tools)
+                tools.extend(
+                    item for item in mcp_tools
+                    if item["function"]["name"] in approvals
+                )
 
             for step in range(1, step_limit + 1):
                 reply, backend = await self._complete_with_failover(decision.capability, messages, tools)
                 last_backend = backend.name
                 if not reply.tool_calls:
+                    messages.append({"role": "assistant", "content": reply.text})
+                    if session_id:
+                        self.sessions.checkpoint(session_id, messages, "completed")
                     return RunResult(
                         text=reply.text,
                         backend=backend.name,
@@ -181,17 +214,19 @@ class SovereignAgent:
                     )
 
                 messages.append(self._assistant_tool_message(reply))
+                if session_id:
+                    self.sessions.checkpoint(session_id, messages, "running")
 
                 for call in reply.tool_calls:
                     if call.name in native_names:
                         result = await self.native_tools.execute(
                             call.name,
                             call.arguments,
-                            approved_tools,
+                            approvals,
                         )
                     else:
                         target = mcp_registry.get(call.name)
-                        if target is None:
+                        if target is None or call.name not in approvals:
                             raise ToolExecutionError(
                                 f"backend requested unknown or unauthorized tool: {call.name}"
                             )
@@ -206,13 +241,46 @@ class SovereignAgent:
                             "content": json.dumps(result, separators=(",", ":"), ensure_ascii=False),
                         }
                     )
+                    if session_id:
+                        self.sessions.checkpoint(session_id, messages, "running")
             raise AgentStepLimit(
                 f"agent reached the {step_limit}-step limit after {total_tool_calls} tool calls; "
                 f"last backend={last_backend}"
             )
+        except Exception as exc:
+            if session_id:
+                self.sessions.checkpoint(session_id, messages, "interrupted", str(exc))
+            raise
         finally:
             if clients:
                 await asyncio.gather(*(client.close() for client in clients.values()), return_exceptions=True)
+
+    @staticmethod
+    def _close_uncertain_tool_calls(messages: list[dict[str, Any]]) -> None:
+        for index in range(len(messages) - 1, -1, -1):
+            item = messages[index]
+            if item.get("role") == "assistant" and item.get("tool_calls"):
+                completed = {
+                    message.get("tool_call_id")
+                    for message in messages[index + 1 :]
+                    if message.get("role") == "tool"
+                }
+                for call in item["tool_calls"]:
+                    if call["id"] not in completed:
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": call["id"],
+                                "name": call["function"]["name"],
+                                "content": json.dumps(
+                                    {
+                                        "ok": False,
+                                        "error": "Action outcome is unknown after interruption; it was not replayed.",
+                                    }
+                                ),
+                            }
+                        )
+                return
 
     async def run_visual(
         self,
@@ -391,6 +459,7 @@ class SovereignAgent:
         return {
             "version": __version__,
             "controller": "sovereign",
+            "config_path": str(DEFAULT_CONFIG.expanduser()),
             "permission_mode": self.config.permission_mode.value,
             "workspace": str(self.config.workspace.expanduser()),
             "backends": self.mesh.status(),

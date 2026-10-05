@@ -1,0 +1,43 @@
+{
+  "name": "@sovereign/desktop",
+  "version": "8.0.0",
+  "packageManager": "pnpm@11.25.0",
+  "private": true,
+  "description": "Sovereign desktop shell",
+  "executableName": "sovereign",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.cjs",
+    "dist": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.0"
+  },
+  "build": {
+    "appId": "dev.bxane.sovereign",
+    "productName": "Sovereign",
+    "files": ["main.cjs", "preload.cjs", "lib/**/*", "renderer/**/*", "package.json"],
+    "extraResources": [
+      {"from": "resources/core", "to": "core"},
+      {"from": "resources/terminal", "to": "terminal"}
+    ],
+    "publish": [{"provider": "github", "owner": "bxane-dev", "repo": "sovereign"}],
+    "win": {"target": ["nsis"], "icon": "assets/icon.ico", "artifactName": "Sovereign-${version}-${os}-${arch}.${ext}"},
+    "mac": {
+      "target": ["dmg", "zip"],
+      "icon": "assets/icon.icns",
+      "artifactName": "Sovereign-${version}-${os}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "notarize": true,
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist"
+    },
+    "linux": {"target": ["AppImage", "deb"], "icon": "assets/icon.png", "artifactName": "Sovereign-${version}-${os}-${arch}.${ext}"},
+    "nsis": {"oneClick": false, "allowToChangeInstallationDirectory": true}
+  }
+}
